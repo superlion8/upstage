@@ -4,8 +4,13 @@ struct ContentView: View {
     @EnvironmentObject var appState: AppState
     
     var body: some View {
-        // 跳过登录，直接进入主界面
-        MainTabView()
+        Group {
+            if appState.isAuthenticated {
+                MainTabView()
+            } else {
+                AuthView()
+            }
+        }
     }
 }
 
