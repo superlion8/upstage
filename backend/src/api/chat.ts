@@ -120,7 +120,20 @@ export async function chatRoutes(fastify: FastifyInstance) {
         conversationHistory,
       };
       
-      const agentOutput = await runAgent(agentInput);
+      logger.info('Starting agent run...');
+      const startTime = Date.now();
+      
+      // 添加超时
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Agent timeout after 90s')), 90000);
+      });
+      
+      const agentOutput = await Promise.race([
+        runAgent(agentInput),
+        timeoutPromise,
+      ]) as any;
+      
+      logger.info('Agent completed', { duration: Date.now() - startTime });
       
       // Save assistant message
       const [assistantMessage] = await db.insert(messages).values({

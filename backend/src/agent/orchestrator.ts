@@ -100,6 +100,9 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
     
     try {
       // Call Thinking LLM
+      logger.info(`Calling LLM model: ${THINKING_MODEL}`);
+      const llmStartTime = Date.now();
+      
       const response = await client.models.generateContent({
         model: THINKING_MODEL,
         contents: [
@@ -112,6 +115,8 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
           safetySettings,
         },
       });
+      
+      logger.info(`LLM response received`, { duration: Date.now() - llmStartTime });
       
       const candidate = response.candidates?.[0];
       if (!candidate) {

@@ -10,7 +10,7 @@ struct User: Identifiable, Codable, Equatable {
     var quotaTotal: Int
     var quotaUsed: Int
     var quotaResetAt: Date?
-    let createdAt: Date
+    var createdAt: Date?
     
     enum UserRole: String, Codable {
         case user

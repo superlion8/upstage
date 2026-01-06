@@ -12,7 +12,7 @@ final class APIClient {
         self.baseURL = "https://upstage-production.up.railway.app/api"
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = 120  // 增加到 120 秒，图像生成需要更长时间
         self.session = URLSession(configuration: config)
     }
     
@@ -37,17 +37,36 @@ final class APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: params)
         }
         
+        // 🔵 LOG: Request
+        print("📤 [\(endpoint.method)] \(url.absoluteString)")
+        if let body = request.httpBody, let bodyStr = String(data: body, encoding: .utf8) {
+            print("📤 Body: \(bodyStr.prefix(500))")
+        }
+        
         let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ No HTTP response")
             throw APIError.unknown
         }
         
+        // 🔵 LOG: Response
+        let responseStr = String(data: data, encoding: .utf8) ?? "nil"
+        print("📥 Status: \(httpResponse.statusCode)")
+        print("📥 Response: \(responseStr.prefix(1000))")
+        
         guard (200...299).contains(httpResponse.statusCode) else {
+            print("❌ HTTP Error: \(httpResponse.statusCode)")
             throw APIError.from(statusCode: httpResponse.statusCode)
         }
         
-        return try JSONDecoder.api.decode(T.self, from: data)
+        do {
+            return try JSONDecoder.api.decode(T.self, from: data)
+        } catch {
+            print("❌ Decode Error: \(error)")
+            print("❌ Expected Type: \(T.self)")
+            throw error
+        }
     }
     
     // MARK: - Multipart Upload
