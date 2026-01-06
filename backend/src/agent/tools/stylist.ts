@@ -15,6 +15,9 @@
 
 import { getGenAIClient, safetySettings, createImagePart, extractText } from '../../lib/genai.js';
 import { config } from '../../config/index.js';
+import { createLogger } from '../../lib/logger.js';
+
+const logger = createLogger('tool:stylist');
 
 // ============================================
 // 配置
@@ -77,6 +80,14 @@ export interface StylistOutput {
  * ```
  */
 export async function generateOutfitInstruct(input: StylistInput): Promise<StylistOutput> {
+  logger.info('Starting outfit instruction generation', {
+    hasProductImage: !!input.productImage,
+    hasModelImage: !!input.modelImage,
+    hasSceneImage: !!input.sceneImage,
+    stylePreference: input.stylePreference,
+    productImageLength: input.productImage?.length || 0,
+  });
+  
   const client = getGenAIClient();
   
   // 构建 prompt
@@ -86,7 +97,9 @@ export async function generateOutfitInstruct(input: StylistInput): Promise<Styli
   const parts: any[] = [];
   
   // 添加核心单品图（必须）
-  parts.push(createImagePart(input.productImage));
+  const imagePart = createImagePart(input.productImage);
+  logger.debug('Created image part', { type: Object.keys(imagePart)[0] });
+  parts.push(imagePart);
   
   // 添加模特图（可选）
   if (input.modelImage) {
@@ -101,26 +114,46 @@ export async function generateOutfitInstruct(input: StylistInput): Promise<Styli
   // 添加 prompt
   parts.push({ text: prompt });
   
-  // 调用模型
-  const response = await client.models.generateContent({
-    model: STYLIST_MODEL,
-    contents: [{ role: 'user', parts }],
-    config: {
-      safetySettings,
-    },
-  });
-  
-  // 提取文本响应
-  const rawOutput = extractText(response);
-  
-  if (!rawOutput) {
-    throw new Error('Stylist Tool: Failed to generate outfit instruction');
+  try {
+    logger.info('Calling Gemini API', { model: STYLIST_MODEL, partsCount: parts.length });
+    
+    // 调用模型
+    const response = await client.models.generateContent({
+      model: STYLIST_MODEL,
+      contents: [{ role: 'user', parts }],
+      config: {
+        safetySettings,
+      },
+    });
+    
+    logger.info('Gemini API response received');
+    
+    // 提取文本响应
+    const rawOutput = extractText(response);
+    
+    if (!rawOutput) {
+      logger.error('No text in response', { response: JSON.stringify(response).substring(0, 500) });
+      throw new Error('Stylist Tool: Failed to generate outfit instruction');
+    }
+    
+    logger.debug('Raw output length', { length: rawOutput.length });
+    
+    // 解析双语输出
+    const result = parseBilingualOutput(rawOutput);
+    
+    logger.info('Outfit instruction generated successfully');
+    return result;
+    
+  } catch (error: any) {
+    logger.error('Gemini API call failed', {
+      errorName: error?.name,
+      errorMessage: error?.message,
+      errorCode: error?.code,
+      errorStatus: error?.status,
+      errorDetails: JSON.stringify(error).substring(0, 1000),
+    });
+    throw error;
   }
-  
-  // 解析双语输出
-  const result = parseBilingualOutput(rawOutput);
-  
-  return result;
 }
 
 /**
