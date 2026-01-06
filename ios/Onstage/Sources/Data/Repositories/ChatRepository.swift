@@ -174,12 +174,5 @@ struct SendMessageResponse {
     let message: Message
 }
 
-/// Response from sending a message
-struct SendMessageResponse {
-    let conversationId: UUID
-    let message: Message
-    let toolCalls: [String]
-}
-
 
 
