@@ -107,8 +107,6 @@ export async function generateOutfitInstruct(input: StylistInput): Promise<Styli
     contents: [{ role: 'user', parts }],
     config: {
       safetySettings,
-      temperature: 0.7,  // 适度创意
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
     },
   });
   

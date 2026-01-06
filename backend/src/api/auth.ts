@@ -184,7 +184,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         name: body.deviceName || '游客用户',
         role: 'guest',
         deviceId: body.deviceId,
-        quotaTotal: 20, // 游客配额较少
+        quotaTotal: -1, // -1 表示无限配额
         quotaUsed: 0,
       }).returning();
       
