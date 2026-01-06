@@ -19,16 +19,30 @@ const logger = createLogger('api:chat');
 // ============================================
 
 const sendMessageSchema = z.object({
+  // 支持 snake_case (iOS) 和 camelCase
   conversationId: z.string().uuid().optional(),
+  conversation_id: z.string().uuid().optional(),
   text: z.string().optional(),
   images: z.array(z.object({
     id: z.string(),
     data: z.string(), // Base64
     mimeType: z.string().default('image/jpeg'),
+    mime_type: z.string().optional(), // iOS sends this
   })).optional(),
-  actionType: z.string().optional(), // For action bar actions
+  actionType: z.string().optional(),
   actionData: z.record(z.any()).optional(),
-});
+}).transform(data => ({
+  // 统一转换为 camelCase
+  conversationId: data.conversationId || data.conversation_id,
+  text: data.text,
+  images: data.images?.map(img => ({
+    id: img.id,
+    data: img.data,
+    mimeType: img.mimeType || img.mime_type || 'image/jpeg',
+  })),
+  actionType: data.actionType,
+  actionData: data.actionData,
+}));
 
 const getConversationsSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(20),
@@ -36,10 +50,15 @@ const getConversationsSchema = z.object({
 });
 
 const getMessagesSchema = z.object({
-  conversationId: z.string().uuid(),
+  conversationId: z.string().uuid().optional(),
+  conversation_id: z.string().uuid().optional(),
   limit: z.coerce.number().min(1).max(100).default(50),
   offset: z.coerce.number().min(0).default(0),
-});
+}).transform(data => ({
+  conversationId: data.conversationId || data.conversation_id || '',
+  limit: data.limit,
+  offset: data.offset,
+}));
 
 // ============================================
 // Routes
