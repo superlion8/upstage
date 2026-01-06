@@ -8,11 +8,8 @@ final class APIClient {
     private let session: URLSession
     
     private init() {
-        #if DEBUG
-        self.baseURL = "http://localhost:3000/api"
-        #else
-        self.baseURL = "https://api.onstage.app/api"
-        #endif
+        // Railway backend URL
+        self.baseURL = "https://upstage-production.up.railway.app/api"
         
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30

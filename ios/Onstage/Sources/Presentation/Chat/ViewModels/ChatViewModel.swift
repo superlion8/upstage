@@ -18,7 +18,7 @@ final class ChatViewModel: ObservableObject {
     
     // MARK: - Demo Mode Flag
     
-    private let isDemoMode = true  // Set to false when backend is ready
+    private let isDemoMode = false  // Backend is ready
     
     // MARK: - Action Sheet Types
     

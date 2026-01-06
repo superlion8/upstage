@@ -28,10 +28,10 @@ const envSchema = z.object({
   VERTEX_AI_ENABLED: z.string().default('true'), // Use Vertex AI endpoint
   
   // Models
-  THINKING_MODEL: z.string().default('gemini-2.5-pro-preview-05-06'),
-  STYLIST_MODEL: z.string().default('gemini-2.5-flash-preview-05-20'),
-  IMAGE_GEN_MODEL: z.string().default('gemini-2.0-flash-preview-image-generation'),
-  ANALYSIS_MODEL: z.string().default('gemini-2.5-flash-preview-05-20'),
+  THINKING_MODEL: z.string().default('gemini-3-flash-preview'),
+  STYLIST_MODEL: z.string().default('gemini-3-flash-preview'),
+  IMAGE_GEN_MODEL: z.string().default('gemini-3-pro-image-preview'),
+  ANALYSIS_MODEL: z.string().default('gemini-3-flash-preview'),
   
   // JWT
   JWT_SECRET: z.string().min(32),
