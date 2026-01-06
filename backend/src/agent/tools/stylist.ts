@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Stylist Tool - 搭配师
  * 

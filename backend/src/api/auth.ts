@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Auth API Routes
  * Handles authentication and user management

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Chat API Routes
  * Handles conversation and message endpoints

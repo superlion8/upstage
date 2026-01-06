@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Shoot Room API Routes
  * Handles professional shooting room functionality

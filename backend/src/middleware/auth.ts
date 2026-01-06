@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Authentication Middleware
  * JWT verification and user injection

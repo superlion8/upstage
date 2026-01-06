@@ -33,8 +33,7 @@
     "nanoid": "^5.0.7",
     "bcryptjs": "^2.4.3",
     "dayjs": "^1.11.12",
-    "pino": "^9.3.2",
-    "pino-pretty": "^11.2.2"
+    "dotenv": "^16.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

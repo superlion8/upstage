@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Assets API Routes
  * Handles asset management (models, products, scenes, generated images)

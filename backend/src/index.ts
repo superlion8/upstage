@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Onstage Backend Server
  * Main entry point

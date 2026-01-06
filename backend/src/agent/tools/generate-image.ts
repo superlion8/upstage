@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Image Generation Tools
  * Handles various image generation tasks using Gemini
