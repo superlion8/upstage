@@ -47,6 +47,12 @@ struct MessageBubbleView: View {
                     }
                 }
                 
+                // Agent Steps (Cursor-like展示)
+                if !isUser, let steps = message.content.agentSteps, !steps.isEmpty {
+                    AgentStepsView(steps: steps, thinking: message.content.thinking)
+                        .padding(.bottom, 4)
+                }
+                
                 // Text content
                 if let text = message.content.text, !text.isEmpty {
                     Text(text)

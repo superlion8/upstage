@@ -21,6 +21,7 @@
 		A100000C /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100000C /* ChatView.swift */; };
 		A100000D /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100000D /* ChatViewModel.swift */; };
 		A100000E /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100000E /* MessageBubbleView.swift */; };
+		A100001F /* AgentStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100001F /* AgentStepView.swift */; };
 		A100000F /* InputBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100000F /* InputBarView.swift */; };
 		A1000010 /* ActionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* ActionBarView.swift */; };
 		A1000011 /* ShootRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000011 /* ShootRoomView.swift */; };
@@ -68,6 +69,7 @@
 		B100000C /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		B100000D /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		B100000E /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		B100001F /* AgentStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStepView.swift; sourceTree = "<group>"; };
 		B100000F /* InputBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBarView.swift; sourceTree = "<group>"; };
 		B1000010 /* ActionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionBarView.swift; sourceTree = "<group>"; };
 		B1000011 /* ShootRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShootRoomView.swift; sourceTree = "<group>"; };
@@ -275,6 +277,7 @@
 			children = (
 				B100000C /* ChatView.swift */,
 				B100000E /* MessageBubbleView.swift */,
+				B100001F /* AgentStepView.swift */,
 				B100000F /* InputBarView.swift */,
 				B1000010 /* ActionBarView.swift */,
 			);
@@ -439,6 +442,7 @@
 				A100000C /* ChatView.swift in Sources */,
 				A100000D /* ChatViewModel.swift in Sources */,
 				A100000E /* MessageBubbleView.swift in Sources */,
+				A100001F /* AgentStepView.swift in Sources */,
 				A100000F /* InputBarView.swift in Sources */,
 				A1000010 /* ActionBarView.swift in Sources */,
 				A1000011 /* ShootRoomView.swift in Sources */,

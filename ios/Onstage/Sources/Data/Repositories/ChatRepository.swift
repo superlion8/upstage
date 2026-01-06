@@ -85,7 +85,8 @@ final class ChatRepository {
             let success: Bool
             let conversationId: UUID
             let message: MessageDTO
-            let toolCalls: [ToolCallDTO]?
+            let agentSteps: [AgentStepDTO]?
+            let thinking: String?
         }
         
         struct MessageDTO: Decodable {
@@ -109,15 +110,37 @@ final class ChatRepository {
             let prefillData: [String: AnyCodable]?
         }
         
-        struct ToolCallDTO: Decodable {
-            let tool: String
+        struct AgentStepDTO: Decodable {
+            let type: String
+            let tool: String?
+            let arguments: [String: AnyCodable]?
+            let result: StepResultDTO?
             let timestamp: Date
+        }
+        
+        struct StepResultDTO: Decodable {
+            let success: Bool?
+            let message: String?
+            let hasImages: Bool?
         }
         
         let response = try await apiClient.request(
             .sendMessage(conversationId: conversationId, text: text, images: images),
             responseType: Response.self
         )
+        
+        // 解析 agent steps
+        let agentSteps: [AgentStep]? = response.agentSteps?.compactMap { dto in
+            guard let stepType = AgentStep.StepType(rawValue: dto.type) else { return nil }
+            return AgentStep(
+                id: UUID(),
+                type: stepType,
+                tool: dto.tool,
+                arguments: dto.arguments,
+                result: dto.result.map { StepResult(success: $0.success ?? true, message: $0.message, hasImages: $0.hasImages) },
+                timestamp: dto.timestamp
+            )
+        }
         
         let message = Message(
             id: response.message.id,
@@ -130,7 +153,9 @@ final class ChatRepository {
                 },
                 guiRequest: response.message.guiRequest.map {
                     GuiRequest(type: $0.type, message: $0.message, prefillData: $0.prefillData)
-                }
+                },
+                agentSteps: agentSteps,
+                thinking: response.thinking
             ),
             createdAt: response.message.createdAt,
             status: .sent
@@ -138,10 +163,15 @@ final class ChatRepository {
         
         return SendMessageResponse(
             conversationId: response.conversationId,
-            message: message,
-            toolCalls: response.toolCalls?.map { $0.tool } ?? []
+            message: message
         )
     }
+}
+
+/// Response from sending a message
+struct SendMessageResponse {
+    let conversationId: UUID
+    let message: Message
 }
 
 /// Response from sending a message

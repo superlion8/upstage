@@ -28,6 +28,40 @@ struct MessageContent: Codable, Equatable {
     var images: [MessageImage]?
     var generatedImages: [GeneratedImage]?
     var guiRequest: GuiRequest?
+    var agentSteps: [AgentStep]?  // Agent 执行步骤
+    var thinking: String?  // Agent 思考过程
+}
+
+/// Agent execution step
+struct AgentStep: Identifiable, Codable, Equatable {
+    let id: UUID
+    let type: StepType
+    let tool: String?
+    let arguments: [String: AnyCodable]?
+    let result: StepResult?
+    let timestamp: Date
+    
+    enum StepType: String, Codable {
+        case thinking
+        case toolCall = "tool_call"
+        case toolResult = "tool_result"
+    }
+    
+    init(id: UUID = UUID(), type: StepType, tool: String? = nil, arguments: [String: AnyCodable]? = nil, result: StepResult? = nil, timestamp: Date = Date()) {
+        self.id = id
+        self.type = type
+        self.tool = tool
+        self.arguments = arguments
+        self.result = result
+        self.timestamp = timestamp
+    }
+}
+
+/// Step result
+struct StepResult: Codable, Equatable {
+    let success: Bool
+    let message: String?
+    let hasImages: Bool?
 }
 
 /// User uploaded image

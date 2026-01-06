@@ -172,10 +172,19 @@ export async function chatRoutes(fastify: FastifyInstance) {
           guiRequest: agentOutput.response.guiRequest,
           createdAt: assistantMessage.createdAt,
         },
-        toolCalls: agentOutput.toolCalls.map(tc => ({
+        // Agent 执行步骤（供前端展示）
+        agentSteps: agentOutput.toolCalls.map(tc => ({
+          type: 'tool_call',
           tool: tc.tool,
+          arguments: tc.arguments,
+          result: {
+            success: tc.result?.success ?? true,
+            message: tc.result?.message,
+            hasImages: !!tc.result?.images?.length,
+          },
           timestamp: tc.timestamp,
         })),
+        thinking: agentOutput.thinking,
       });
       
     } catch (error) {
