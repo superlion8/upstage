@@ -113,10 +113,6 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         config: {
           tools: [{ functionDeclarations: AGENT_TOOLS as any }],
           safetySettings,
-          // 禁用 thinking 以避免 thought_signature 问题
-          thinkingConfig: {
-            thinkingBudget: 0,  // 0 = 禁用思考
-          },
         },
       });
       
