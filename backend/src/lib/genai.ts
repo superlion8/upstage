@@ -1,10 +1,20 @@
 /**
  * Google Generative AI Client
  * Centralized AI client management with safety settings and utilities
+ * Supports both AI Studio and Vertex AI endpoints
  */
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, type SafetySetting } from '@google/genai';
 import { config } from '../config/index.js';
+
+// ============================================
+// Vertex AI Mode Setup
+// ============================================
+
+// Set Vertex AI mode via environment variable if enabled
+if (config.ai.vertexAI.enabled) {
+  process.env.GOOGLE_GENAI_USE_VERTEXAI = 'true';
+}
 
 // ============================================
 // Client Instance
@@ -14,10 +24,15 @@ let clientInstance: GoogleGenAI | null = null;
 
 /**
  * Get or create the GoogleGenAI client instance
+ * Works with both AI Studio API Key and Vertex AI API Key
  */
 export function getGenAIClient(): GoogleGenAI {
   if (!clientInstance) {
-    clientInstance = new GoogleGenAI({ apiKey: config.ai.apiKey });
+    const apiKey = config.ai.apiKey;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is required');
+    }
+    clientInstance = new GoogleGenAI({ apiKey });
   }
   return clientInstance;
 }

@@ -23,8 +23,9 @@ const envSchema = z.object({
   // Redis (optional)
   REDIS_URL: z.string().optional(),
   
-  // Google AI
-  GOOGLE_API_KEY: z.string().min(1),
+  // Google AI / Vertex AI
+  GEMINI_API_KEY: z.string().min(1), // Works for both AI Studio and Vertex AI
+  VERTEX_AI_ENABLED: z.string().default('true'), // Use Vertex AI endpoint
   
   // Models
   THINKING_MODEL: z.string().default('gemini-2.5-pro-preview-05-06'),
@@ -90,7 +91,10 @@ export const config = {
   
   // AI Models
   ai: {
-    apiKey: env.GOOGLE_API_KEY,
+    apiKey: env.GEMINI_API_KEY,
+    vertexAI: {
+      enabled: env.VERTEX_AI_ENABLED === 'true',
+    },
     models: {
       thinking: env.THINKING_MODEL,
       stylist: env.STYLIST_MODEL,
