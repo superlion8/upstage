@@ -140,6 +140,15 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         // 提取模型响应的完整 parts（包含 thought 和 thought_signature）
         const modelParts = candidate.content?.parts || [];
         
+        // 调试日志：查看 modelParts 结构
+        logger.info('Model parts structure', {
+          partsCount: modelParts.length,
+          partTypes: modelParts.map((p: any) => Object.keys(p)),
+          hasThought: modelParts.some((p: any) => p.thought),
+          hasThoughtSignature: modelParts.some((p: any) => p.thoughtSignature),
+          hasFunctionCall: modelParts.some((p: any) => p.functionCall),
+        });
+        
         // Execute tool
         const toolContext: ToolContext = {
           userId: input.userId,
@@ -335,6 +344,13 @@ function appendToolResult(
   result: any,
   modelParts?: any[]
 ): AgentContext {
+  // 调试：打印 appendToolResult 接收到的 modelParts
+  logger.info('appendToolResult called', {
+    toolName,
+    modelPartsCount: modelParts?.length || 0,
+    modelPartTypes: modelParts?.map((p: any) => Object.keys(p)) || [],
+  });
+  
   // 添加模型响应（包含完整的 parts 以保留 thought_signature）
   if (modelParts && modelParts.length > 0) {
     // 使用模型返回的完整 parts（包含 thought, thought_signature, functionCall）
@@ -342,8 +358,10 @@ function appendToolResult(
       role: 'model',
       parts: modelParts,
     });
+    logger.info('Added model parts to context', { partsCount: modelParts.length });
   } else {
     // 兜底：如果没有 modelParts，使用简化版本
+    logger.warn('No modelParts provided, using fallback');
     context.messages.push({
       role: 'model',
       parts: [{
