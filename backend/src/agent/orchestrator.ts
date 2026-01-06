@@ -137,6 +137,9 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         
         logger.info('Tool call detected', { tool: functionCall.name, args: functionCall.args });
         
+        // 提取模型响应的完整 parts（包含 thought 和 thought_signature）
+        const modelParts = candidate.content?.parts || [];
+        
         // Execute tool
         const toolContext: ToolContext = {
           userId: input.userId,
@@ -183,18 +186,18 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
             };
           }
           
-          // Append tool result to context and continue
-          context = appendToolResult(context, functionCall.name, toolResult);
+          // Append tool result to context and continue (包含完整的 model parts)
+          context = appendToolResult(context, functionCall.name, functionCall.args, toolResult, modelParts);
           continue;
           
         } catch (toolError) {
           logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
           
           // Append error to context
-          context = appendToolResult(context, functionCall.name, {
+          context = appendToolResult(context, functionCall.name, functionCall.args, {
             success: false,
             error: toolError instanceof Error ? toolError.message : 'Unknown error',
-          });
+          }, modelParts);
           continue;
         }
       }
@@ -323,19 +326,36 @@ function buildContext(input: AgentInput): AgentContext {
 
 /**
  * Append tool result to context
+ * @param modelParts - 模型响应的完整 parts（包含 thought、thought_signature 和 functionCall）
  */
-function appendToolResult(context: AgentContext, toolName: string, result: any): AgentContext {
-  // Add function response
-  context.messages.push({
-    role: 'model',
-    parts: [{
-      functionCall: {
-        name: toolName,
-        args: {},
-      },
-    }],
-  });
+function appendToolResult(
+  context: AgentContext, 
+  toolName: string, 
+  toolArgs: Record<string, any>,
+  result: any,
+  modelParts?: any[]
+): AgentContext {
+  // 添加模型响应（包含完整的 parts 以保留 thought_signature）
+  if (modelParts && modelParts.length > 0) {
+    // 使用模型返回的完整 parts（包含 thought, thought_signature, functionCall）
+    context.messages.push({
+      role: 'model',
+      parts: modelParts,
+    });
+  } else {
+    // 兜底：如果没有 modelParts，使用简化版本
+    context.messages.push({
+      role: 'model',
+      parts: [{
+        functionCall: {
+          name: toolName,
+          args: toolArgs,
+        },
+      }],
+    });
+  }
   
+  // 添加函数响应
   context.messages.push({
     role: 'user',
     parts: [{
