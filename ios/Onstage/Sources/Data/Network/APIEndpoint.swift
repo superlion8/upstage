@@ -8,6 +8,7 @@ enum APIEndpoint {
     // Auth
     case register(email: String, password: String, name: String?)
     case login(email: String, password: String)
+    case guestLogin(deviceId: String, deviceName: String?)
     case getMe
     case updateProfile(name: String?, avatarUrl: String?)
     case refreshToken
@@ -41,6 +42,7 @@ enum APIEndpoint {
         // Auth
         case .register: return "/auth/register"
         case .login: return "/auth/login"
+        case .guestLogin: return "/auth/guest-login"
         case .getMe: return "/auth/me"
         case .updateProfile: return "/auth/me"
         case .refreshToken: return "/auth/refresh"
@@ -71,7 +73,7 @@ enum APIEndpoint {
     
     var method: String {
         switch self {
-        case .register, .login, .refreshToken, .sendMessage, .createAsset, .createSession, .generateFromShootRoom:
+        case .register, .login, .guestLogin, .refreshToken, .sendMessage, .createAsset, .createSession, .generateFromShootRoom:
             return "POST"
         case .getMe, .getConversations, .getMessages, .listAssets, .getAsset, .listPresets, .listSessions, .getSession:
             return "GET"
@@ -92,6 +94,11 @@ enum APIEndpoint {
             
         case .login(let email, let password):
             return ["email": email, "password": password]
+            
+        case .guestLogin(let deviceId, let deviceName):
+            var params: Parameters = ["deviceId": deviceId]
+            if let deviceName = deviceName { params["deviceName"] = deviceName }
+            return params
             
         case .updateProfile(let name, let avatarUrl):
             var params: Parameters = [:]

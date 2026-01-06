@@ -10,7 +10,7 @@ import { relations } from 'drizzle-orm';
 // Enums
 // ============================================
 
-export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
+export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'guest']);
 export const assetTypeEnum = pgEnum('asset_type', ['model', 'product', 'scene', 'generated', 'reference']);
 export const messageRoleEnum = pgEnum('message_role', ['user', 'assistant', 'system']);
 export const messageStatusEnum = pgEnum('message_status', ['sending', 'sent', 'failed', 'generating']);
@@ -27,6 +27,9 @@ export const users = pgTable('users', {
   name: varchar('name', { length: 100 }),
   avatarUrl: text('avatar_url'),
   role: userRoleEnum('role').default('user').notNull(),
+  
+  // 设备绑定（游客登录用）
+  deviceId: varchar('device_id', { length: 100 }).unique(),
   
   // Quota
   quotaTotal: integer('quota_total').default(100).notNull(),

@@ -97,6 +97,25 @@ final class AuthRepository {
         return response.token
     }
     
+    // MARK: - Guest Login
+    
+    func guestLogin(deviceId: String, deviceName: String?) async throws -> User {
+        let response = try await apiClient.request(
+            .guestLogin(deviceId: deviceId, deviceName: deviceName),
+            responseType: AuthResponse.self
+        )
+        
+        guard response.success, let user = response.user, let token = response.token else {
+            throw APIError.serverError(message: response.error ?? "游客登录失败")
+        }
+        
+        // Save token
+        keychainManager.saveAuthToken(token)
+        keychainManager.saveUserId(user.id.uuidString)
+        
+        return user
+    }
+    
     // MARK: - Logout
     
     func logout() {

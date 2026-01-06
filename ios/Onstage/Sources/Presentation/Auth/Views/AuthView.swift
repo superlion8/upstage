@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Auth view - Login/Register
 struct AuthView: View {
@@ -8,6 +9,7 @@ struct AuthView: View {
     @State private var password = ""
     @State private var name = ""
     @State private var isLoading = false
+    @State private var isGuestLoading = false
     @State private var error: String?
     
     var body: some View {
@@ -91,6 +93,49 @@ struct AuthView: View {
                         .foregroundColor(.accentColor)
                 }
                 
+                // Divider
+                HStack {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(height: 1)
+                    Text("或")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(height: 1)
+                }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 8)
+                
+                // Guest login button
+                Button {
+                    Task {
+                        await guestLogin()
+                    }
+                } label: {
+                    HStack {
+                        if isGuestLoading {
+                            ProgressView()
+                                .tint(.accentColor)
+                        } else {
+                            Image(systemName: "person.fill.questionmark")
+                            Text("游客体验")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .foregroundColor(.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .disabled(isGuestLoading)
+                .padding(.horizontal, 32)
+                
+                Text("游客配额: 20次/天")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
                 Spacer()
             }
         }
@@ -132,6 +177,32 @@ struct AuthView: View {
         }
         
         isLoading = false
+    }
+    
+    private func guestLogin() async {
+        isGuestLoading = true
+        error = nil
+        
+        do {
+            // 获取设备 ID
+            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+            let deviceName = UIDevice.current.name
+            
+            print("📱 Device ID: \(deviceId)")
+            
+            let user = try await AuthRepository.shared.guestLogin(
+                deviceId: deviceId,
+                deviceName: deviceName
+            )
+            
+            appState.currentUser = user
+            appState.isAuthenticated = true
+            
+        } catch {
+            self.error = "游客登录失败: \(error.localizedDescription)"
+        }
+        
+        isGuestLoading = false
     }
 }
 

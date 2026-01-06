@@ -33,6 +33,11 @@ const updateProfileSchema = z.object({
   avatarUrl: z.string().url().optional(),
 });
 
+const guestLoginSchema = z.object({
+  deviceId: z.string().min(10).max(100),
+  deviceName: z.string().max(100).optional(),
+});
+
 // ============================================
 // Routes
 // ============================================
@@ -148,6 +153,71 @@ export async function authRoutes(fastify: FastifyInstance) {
         quotaUsed: user.quotaUsed,
       },
       token,
+    });
+  });
+  
+  /**
+   * Guest login (device-bound)
+   * POST /api/auth/guest-login
+   */
+  fastify.post('/guest-login', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = guestLoginSchema.parse(request.body);
+    
+    // Check if device already has a guest account
+    let user = await db.query.users.findFirst({
+      where: eq(users.deviceId, body.deviceId),
+    });
+    
+    let isNewUser = false;
+    
+    if (!user) {
+      // Create new guest user
+      isNewUser = true;
+      const shortId = body.deviceId.substring(0, 8).toLowerCase();
+      const guestEmail = `guest_${shortId}@device.onstage.app`;
+      const randomPassword = Math.random().toString(36).slice(-16);
+      const passwordHash = await bcrypt.hash(randomPassword, 12);
+      
+      [user] = await db.insert(users).values({
+        email: guestEmail,
+        passwordHash,
+        name: body.deviceName || '游客用户',
+        role: 'guest',
+        deviceId: body.deviceId,
+        quotaTotal: 20, // 游客配额较少
+        quotaUsed: 0,
+      }).returning();
+      
+      logger.info('Guest user created', { userId: user.id, deviceId: body.deviceId.substring(0, 8) });
+    } else {
+      // Update last login
+      await db.update(users)
+        .set({ lastLoginAt: new Date() })
+        .where(eq(users.id, user.id));
+      
+      logger.info('Guest user logged in', { userId: user.id });
+    }
+    
+    // Generate JWT
+    const token = fastify.jwt.sign({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    
+    return reply.send({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+        quotaTotal: user.quotaTotal,
+        quotaUsed: user.quotaUsed,
+      },
+      token,
+      isNewUser,
     });
   });
   
