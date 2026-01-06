@@ -153,13 +153,13 @@ async function buildServer() {
 
 async function start() {
   try {
-    // Check database connection
+    // Check database connection (don't exit if fails, just warn)
     const dbOk = await checkDatabaseConnection();
-    if (!dbOk) {
-      log.error('Failed to connect to database');
-      process.exit(1);
+    if (dbOk) {
+      log.info('Database connected');
+    } else {
+      log.warn('Database not connected - some features may not work');
     }
-    log.info('Database connected');
     
     // Build and start server
     const server = await buildServer();
