@@ -94,36 +94,40 @@ export async function generateModelImage(input: GenerateModelImageInput): Promis
   // Add prompt
   parts.push({ text: prompt });
 
-  const promises = [];
-
-  for (let i = 0; i < count; i++) {
-    promises.push(client.models.generateContent({
-      model: IMAGE_GEN_MODEL,
-      contents: [{ role: 'user', parts }],
-      config: {
-        safetySettings,
-        responseModalities: ['image', 'text'],
-      },
-    }));
-  }
-
-  logger.info(`Sending ${count} parallel image generation requests`);
-  const responses = await Promise.all(promises);
+  logger.info(`Generating ${count} images sequentially to avoid memory issues`);
   const allImages: GeneratedImage[] = [];
 
-  for (const response of responses) {
-    const images = extractImages(response);
-    for (const img of images) {
-      allImages.push({
-        id: `gen_${nanoid(8)}`,
-        url: `data:${img.mimeType};base64,${img.data}`,
-        data: img.data,
+  for (let i = 0; i < count; i++) {
+    try {
+      logger.info(`Generating image ${i + 1}/${count}...`);
+      const response = await client.models.generateContent({
+        model: IMAGE_GEN_MODEL,
+        contents: [{ role: 'user', parts }],
+        config: {
+          safetySettings,
+          responseModalities: ['image', 'text'],
+        },
       });
+
+      const images = extractImages(response);
+      logger.info(`Image ${i + 1} generated, got ${images.length} images`);
+
+      for (const img of images) {
+        allImages.push({
+          id: `gen_${nanoid(8)}`,
+          url: `data:${img.mimeType};base64,${img.data}`,
+          data: img.data,
+        });
+      }
+    } catch (e: any) {
+      logger.error(`Failed to generate image ${i + 1}`, { error: e.message });
+      // Continue to next image instead of crashing
     }
   }
 
   if (allImages.length === 0) {
-    throw new Error('No images generated');
+    logger.warn('No images generated, returning empty array instead of throwing');
+    return [];
   }
 
   return allImages;
