@@ -20,6 +20,7 @@ export default async function onboardingRoutes(fastify: FastifyInstance) {
             let productImageMimeType = 'image/jpeg';
 
             for await (const part of parts) {
+                logger.info(`Parsing part: ${part.fieldname} (${part.type})`);
                 if (part.type === 'field') {
                     const value = part.value as string;
                     if (part.fieldname === 'webLink') webLink = value;
@@ -32,15 +33,14 @@ export default async function onboardingRoutes(fastify: FastifyInstance) {
                     }
                     productImageData = Buffer.concat(chunks);
                     productImageMimeType = part.mimetype || 'image/jpeg';
+                    logger.info(`File parsed: ${productImageData.length} bytes`);
                 }
             }
 
-            logger.info('Received onboarding request (multipart)', {
-                userId,
-                webLink,
-                insLink,
-                hasProductImage: !!productImageData,
-                imageSize: productImageData ? `${Math.round(productImageData.length / 1024)} KB` : 'none'
+            logger.info('Multipart parsing complete', {
+                hasWeb: !!webLink,
+                hasIns: !!insLink,
+                hasImg: !!productImageData
             });
 
             if (!productImageData) {

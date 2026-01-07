@@ -764,6 +764,8 @@ export async function executeTool(
     throw new Error(`Tool not implemented: ${name}`);
   }
 
+  logger.info(`Executing tool: ${name}`);
+
   // Validate arguments using zod schema if available
   const schema = TOOL_SCHEMAS[name];
   if (schema) {
