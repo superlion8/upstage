@@ -107,32 +107,50 @@ export async function runOnboardingWorkflow(input: OnboardingInput): Promise<Onb
     let productDisplayImages: any = { images: [] };
 
     try {
+        logger.info('Step 4.1: Generating web style images...');
         // Generate model images using the product image
         webStyleImages = await executeTool('generate_model_image', {
             product_image: input.productImage.id,
-            model_style: 'professional ecommerce model, studio lighting, white background',
+            model_style: 'auto',
+            scene_type: 'studio',
+            vibe: 'professional ecommerce, clean white background, high-end fashion',
             count: 2
         }, context);
+        logger.info('Web style images generated', {
+            count: webStyleImages.images?.length || 0
+        });
     } catch (e) {
         logger.error('Failed to generate web style images', e);
     }
 
     try {
+        logger.info('Step 4.2: Generating ins style images...');
         insStyleImages = await executeTool('generate_model_image', {
             product_image: input.productImage.id,
-            model_style: 'lifestyle model, natural lighting, urban street background, Instagram aesthetic',
+            model_style: 'auto',
+            scene_type: 'street',
+            vibe: 'lifestyle, natural lighting, urban Instagram aesthetic',
             count: 2
         }, context);
+        logger.info('Ins style images generated', {
+            count: insStyleImages.images?.length || 0
+        });
     } catch (e) {
         logger.error('Failed to generate ins style images', e);
     }
 
     try {
+        logger.info('Step 4.3: Generating product display image...');
         productDisplayImages = await executeTool('generate_model_image', {
             product_image: input.productImage.id,
-            model_style: 'product only, no model, minimalist studio setup, professional lighting',
+            model_style: 'auto',
+            scene_type: 'studio',
+            vibe: 'product only, no model, minimalist studio, professional lighting',
             count: 1
         }, context);
+        logger.info('Product display images generated', {
+            count: productDisplayImages.images?.length || 0
+        });
     } catch (e) {
         logger.error('Failed to generate product display images', e);
     }
