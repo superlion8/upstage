@@ -125,10 +125,33 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           partTypes: currentParts.map((p: any) => Object.keys(p)),
           hasInlineData: currentParts.some((p: any) => p.inlineData),
           hasText: currentParts.some((p: any) => p.text),
+          // Log first 100 chars of base64 for each inlineData part
+          inlineDataPreview: currentParts
+            .filter((p: any) => p.inlineData)
+            .map((p: any) => ({
+              mimeType: p.inlineData.mimeType,
+              dataLength: p.inlineData.data?.length || 0,
+              dataPrefix: p.inlineData.data?.substring(0, 50) || 'null',
+            })),
         });
 
         console.log(`\n[Iteration ${iteration + 1}] Sending user message with ${currentParts.length} parts`);
-        response = await chat.sendMessage(currentParts);
+
+        // 尝试发送消息，如果失败则回退到纯文本
+        // SDK 要求 sendMessage 使用 { message: parts } 格式
+        try {
+          response = await chat.sendMessage({ message: currentParts });
+        } catch (sendError: any) {
+          logger.error('sendMessage failed, trying text-only fallback', {
+            error: sendError.message,
+          });
+          // 回退到纯文本消息
+          const textOnlyParts = currentParts.filter((p: any) => p.text);
+          if (textOnlyParts.length === 0) {
+            textOnlyParts.push({ text: '请帮我处理上传的图片' });
+          }
+          response = await chat.sendMessage({ message: textOnlyParts });
+        }
       } else {
         // 后续迭代：sendMessage 已经被 functionResponse 调用了
         // 这里不应该再发送，而是在上一轮工具调用后已经得到了新的 response
@@ -227,12 +250,14 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
 
           // 发送工具响应 - SDK 自动处理 thought_signature
           console.log(`[Iteration ${iteration + 1}] Sending function response for ${functionCall.name}`);
-          const nextResponse = await chat.sendMessage([{
-            functionResponse: {
-              name: functionCall.name,
-              response: toolResult,
-            },
-          }]);
+          const nextResponse = await chat.sendMessage({
+            message: [{
+              functionResponse: {
+                name: functionCall.name,
+                response: toolResult,
+              },
+            }]
+          });
 
           const nextCandidate = nextResponse.candidates?.[0];
           if (!nextCandidate) {
@@ -400,12 +425,14 @@ async function* processToolCalls(
 
     // 发送工具响应
     console.log(`[Depth ${depth}] Sending function response for ${functionCall.name}`);
-    const nextResponse = await chat.sendMessage([{
-      functionResponse: {
-        name: functionCall.name,
-        response: toolResult,
-      },
-    }]);
+    const nextResponse = await chat.sendMessage({
+      message: [{
+        functionResponse: {
+          name: functionCall.name,
+          response: toolResult,
+        },
+      }]
+    });
 
     const nextCandidate = nextResponse.candidates?.[0];
     if (!nextCandidate) {
