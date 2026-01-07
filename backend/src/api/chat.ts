@@ -24,10 +24,10 @@ const sendMessageSchema = z.object({
   conversation_id: z.string().uuid().optional(),
   text: z.string().optional(),
   images: z.array(z.object({
-    id: z.string(),
+    id: z.string().optional(), // 可选，如果没有则自动生成
     data: z.string(), // Base64
-    mimeType: z.string().default('image/jpeg'),
-    mime_type: z.string().optional(), // iOS sends this
+    mimeType: z.string().optional(),
+    mime_type: z.string().optional(),
   })).optional(),
   actionType: z.string().optional(),
   actionData: z.record(z.any()).optional(),
@@ -35,8 +35,8 @@ const sendMessageSchema = z.object({
   // 统一转换为 camelCase
   conversationId: data.conversationId || data.conversation_id,
   text: data.text,
-  images: data.images?.map(img => ({
-    id: img.id,
+  images: data.images?.map((img, i) => ({
+    id: img.id || `img_${Date.now()}_${i}`, // 自动生成 id
     data: img.data,
     mimeType: img.mimeType || img.mime_type || 'image/jpeg',
   })),
@@ -74,9 +74,23 @@ export async function chatRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const userId = request.user.id;
+    
+    // 详细记录请求体结构
+    logger.info('Raw request body structure', { 
+      bodyKeys: Object.keys(request.body as object),
+      hasImages: !!(request.body as any)?.images,
+      imagesCount: (request.body as any)?.images?.length,
+      firstImageKeys: (request.body as any)?.images?.[0] ? Object.keys((request.body as any).images[0]) : [],
+    });
+    
     const body = sendMessageSchema.parse(request.body);
     
-    logger.info('Received chat message', { userId, hasText: !!body.text, imageCount: body.images?.length || 0 });
+    logger.info('Parsed body', { 
+      hasConversationId: !!body.conversationId,
+      hasText: !!body.text, 
+      imageCount: body.images?.length || 0,
+      firstImageId: body.images?.[0]?.id,
+    });
     
     try {
       // Get or create conversation
@@ -84,6 +98,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
       
       if (!conversationId) {
         // Create new conversation
+        logger.info('Creating new conversation', { userId, titlePreview: body.text?.slice(0, 20) });
         const [newConversation] = await db.insert(conversations).values({
           userId,
           title: body.text?.slice(0, 50) || '新对话',
@@ -93,13 +108,24 @@ export async function chatRoutes(fastify: FastifyInstance) {
       }
       
       // Save user message
+      const imageUrls = body.images?.map(img => img.data);
+      logger.info('Saving user message', { 
+        conversationId, 
+        hasText: !!body.text,
+        imageUrlsCount: imageUrls?.length || 0,
+        imageUrlsType: imageUrls ? typeof imageUrls : 'undefined',
+        firstImageUrlLength: imageUrls?.[0]?.length,
+      });
+      
       const [userMessage] = await db.insert(messages).values({
         conversationId,
         role: 'user',
         status: 'sent',
         textContent: body.text,
-        imageUrls: body.images?.map(img => img.data), // Store base64 temporarily
+        imageUrls: imageUrls,
       }).returning();
+      
+      logger.info('User message saved', { messageId: userMessage.id });
       
       // Get conversation history
       const historyMessages = await db.query.messages.findMany({
@@ -173,12 +199,15 @@ export async function chatRoutes(fastify: FastifyInstance) {
       }
       
       // Check and update user quota
-      if (agentOutput.toolCalls.some(tc => tc.result?.images)) {
-        await db.update(users)
-          .set({ quotaUsed: users.quotaUsed })
-          .where(eq(users.id, userId));
-        // TODO: Implement proper quota tracking
-      }
+      // TODO: 正确实现配额追踪（目前暂时禁用，避免 [object Object] 错误）
+      // if (agentOutput.toolCalls.some(tc => tc.result?.images)) {
+      //   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      //   if (user) {
+      //     await db.update(users)
+      //       .set({ quotaUsed: user.quotaUsed + 1 })
+      //       .where(eq(users.id, userId));
+      //   }
+      // }
       
       return reply.send({
         success: true,
