@@ -482,10 +482,12 @@ function buildInitialHistory(input: AgentInput, imageContext: Record<string, str
     if (msg.content.images) {
       for (const img of msg.content.images) {
         imageContext[img.id] = img.data;
+        // Strip data URL prefix if present
+        const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
         parts.push({
           inlineData: {
-            mimeType: img.mimeType,
-            data: img.data,
+            mimeType: img.mimeType || 'image/jpeg',
+            data: base64Data,
           },
         });
       }
@@ -518,10 +520,13 @@ function buildCurrentMessageParts(input: AgentInput, imageContext: Record<string
       const imageId = `image_${i + 1}`;
       imageContext[imageId] = img.data;
 
+      // Strip data URL prefix if present
+      const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
+
       parts.push({
         inlineData: {
-          mimeType: img.mimeType,
-          data: img.data,
+          mimeType: img.mimeType || 'image/jpeg',
+          data: base64Data,
         },
       });
     }
