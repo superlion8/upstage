@@ -68,6 +68,20 @@ interface AgentContext {
 const MAX_ITERATIONS = 5;
 const THINKING_MODEL = config.ai.models.thinking;
 
+// 工具名称显示映射
+function getToolDisplayName(toolName: string): string {
+  const nameMap: Record<string, string> = {
+    'stylist': '搭配师',
+    'analyze_image': '图像分析',
+    'generate_model_image': '生成模特图',
+    'change_outfit': '换搭配',
+    'change_model': '换模特',
+    'replicate_reference': '复刻参考图',
+    'edit_image': '编辑图片',
+  };
+  return nameMap[toolName] || toolName;
+}
+
 // ============================================
 // Main Agent Function
 // ============================================
@@ -183,8 +197,10 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
             };
           }
           
-          // Check if tool returned generated images and should stop
-          if (toolResult.images && toolResult.shouldContinue === false) {
+          // 简化逻辑：工具执行成功后直接返回结果
+          // 避免多轮调用时的 thought_signature 问题
+          if (toolResult.images) {
+            // 如果工具返回了图片，直接返回
             return {
               response: {
                 text: toolResult.message || '图片已生成完成 ✨',
@@ -195,19 +211,35 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
             };
           }
           
-          // Append tool result to context and continue (包含完整的 model parts)
-          context = appendToolResult(context, functionCall.name, functionCall.args, toolResult, modelParts);
-          continue;
+          // 如果工具没有返回图片（如 stylist），构建友好的响应
+          let responseText = toolResult.message || '处理完成';
+          
+          // 特殊处理 stylist 工具的输出
+          if (functionCall.name === 'stylist' && toolResult.outfit_instruct_zh) {
+            responseText = `🎨 **搭配方案已生成**\n\n${toolResult.outfit_instruct_zh}\n\n需要我基于这个搭配方案生成模特图吗？`;
+          }
+          
+          return {
+            response: {
+              text: responseText,
+            },
+            toolCalls,
+            thinking,
+          };
           
         } catch (toolError) {
           logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
           
-          // Append error to context
-          context = appendToolResult(context, functionCall.name, functionCall.args, {
-            success: false,
-            error: toolError instanceof Error ? toolError.message : 'Unknown error',
-          }, modelParts);
-          continue;
+          // 工具执行失败，直接返回错误信息
+          const errorMessage = toolError instanceof Error ? toolError.message : 'Unknown error';
+          
+          return {
+            response: {
+              text: `😅 抱歉，在执行「${getToolDisplayName(functionCall.name)}」时遇到了问题：${errorMessage}\n\n请稍后重试或换一种方式描述你的需求。`,
+            },
+            toolCalls,
+            thinking,
+          };
         }
       }
       
