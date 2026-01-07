@@ -12,8 +12,8 @@
 // Tool 导入
 // ============================================
 
-import { 
-  generateOutfitInstruct, 
+import {
+  generateOutfitInstruct,
   STYLIST_TOOL_DEFINITION,
   type StylistInput,
   type StylistOutput,
@@ -37,6 +37,62 @@ import {
   EDIT_IMAGE_TOOL_DEFINITION,
 } from './generate-image.js';
 
+import { z } from 'zod';
+
+// ============================================
+// Zod Schemas for Tool Parameter Validation
+// ============================================
+
+const TOOL_SCHEMAS: Record<string, z.ZodSchema> = {
+  analyze_image: z.object({
+    image_ref: z.string(),
+    analysis_type: z.enum(['clothing', 'model', 'scene', 'full']).optional(),
+  }),
+  change_outfit: z.object({
+    original_image: z.string(),
+    outfit_images: z.array(z.string()),
+    outfit_instruct: z.string().optional(),
+    style_notes: z.string().optional(),
+  }),
+  change_model: z.object({
+    original_image: z.string(),
+    model_reference: z.string().optional(),
+    model_style: z.enum(['korean', 'japanese', 'western', 'chinese', 'auto']).optional(),
+    model_gender: z.enum(['female', 'male']).optional(),
+  }),
+  replicate_reference: z.object({
+    product_image: z.string(),
+    reference_image: z.string(),
+    elements_to_replicate: z.array(z.enum(['composition', 'pose', 'lighting', 'vibe', 'color_tone'])).optional(),
+  }),
+  generate_model_image: z.object({
+    product_image: z.string(),
+    model_reference: z.string().optional(),
+    model_style: z.enum(['korean', 'japanese', 'western', 'chinese', 'auto']).optional(),
+    scene_type: z.enum(['studio', 'outdoor', 'indoor', 'street', 'custom']).optional(),
+    scene_reference: z.string().optional(),
+    outfit_instruct: z.string().optional(),
+    vibe: z.string().optional(),
+    count: z.number().optional(),
+  }),
+  edit_image: z.object({
+    image_ref: z.string(),
+    edit_instruction: z.string(),
+    edit_region: z.enum(['full', 'upper_body', 'lower_body', 'background', 'accessory', 'face']).optional(),
+  }),
+  stylist: z.object({
+    product_image: z.string(),
+    model_image: z.string().optional(),
+    scene_image: z.string().optional(),
+    style_preference: z.string().optional(),
+  }),
+  request_gui_input: z.object({
+    gui_type: z.enum(['change_outfit', 'change_model', 'replicate_reference', 'select_model', 'select_scene']),
+    message: z.string().optional(),
+    prefill_data: z.record(z.any()).optional(),
+  }),
+};
+
 // ============================================
 // Tool Definitions（给 LLM 看的 schema）
 // ============================================
@@ -44,7 +100,7 @@ import {
 export const AGENT_TOOLS = [
   // 搭配师 - 分析图像生成搭配建议
   STYLIST_TOOL_DEFINITION,
-  
+
   // 图像分析
   {
     name: 'analyze_image',
@@ -65,7 +121,7 @@ export const AGENT_TOOLS = [
       required: ['image_ref'],
     },
   },
-  
+
   // 换搭配
   {
     name: 'change_outfit',
@@ -94,7 +150,7 @@ export const AGENT_TOOLS = [
       required: ['original_image', 'outfit_images'],
     },
   },
-  
+
   // 换模特
   {
     name: 'change_model',
@@ -124,7 +180,7 @@ export const AGENT_TOOLS = [
       required: ['original_image'],
     },
   },
-  
+
   // 复刻参考图
   {
     name: 'replicate_reference',
@@ -152,7 +208,7 @@ export const AGENT_TOOLS = [
       required: ['product_image', 'reference_image'],
     },
   },
-  
+
   // 生成模特图
   {
     name: 'generate_model_image',
@@ -198,7 +254,7 @@ export const AGENT_TOOLS = [
       required: ['product_image'],
     },
   },
-  
+
   // 编辑图片
   {
     name: 'edit_image',
@@ -223,7 +279,7 @@ export const AGENT_TOOLS = [
       required: ['image_ref', 'edit_instruction'],
     },
   },
-  
+
   // 搜索资产
   {
     name: 'search_assets',
@@ -253,7 +309,7 @@ export const AGENT_TOOLS = [
       required: [],
     },
   },
-  
+
   // 获取预设
   {
     name: 'get_presets',
@@ -278,7 +334,7 @@ export const AGENT_TOOLS = [
       required: ['preset_type'],
     },
   },
-  
+
   // 保存到资产库
   {
     name: 'save_to_assets',
@@ -308,7 +364,7 @@ export const AGENT_TOOLS = [
       required: ['image_ref', 'asset_type'],
     },
   },
-  
+
   // 请求 GUI 输入
   {
     name: 'request_gui_input',
@@ -358,20 +414,20 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // ============================================
   stylist: async (args, context) => {
     const productImage = resolveImageRef(args.product_image, context.imageContext);
-    const modelImage = args.model_image 
-      ? resolveImageRef(args.model_image, context.imageContext) 
+    const modelImage = args.model_image
+      ? resolveImageRef(args.model_image, context.imageContext)
       : undefined;
-    const sceneImage = args.scene_image 
-      ? resolveImageRef(args.scene_image, context.imageContext) 
+    const sceneImage = args.scene_image
+      ? resolveImageRef(args.scene_image, context.imageContext)
       : undefined;
-    
+
     const result = await generateOutfitInstruct({
       productImage,
       modelImage,
       sceneImage,
       stylePreference: args.style_preference,
     });
-    
+
     return {
       success: true,
       outfit_instruct_zh: result.outfit_instruct_zh,
@@ -381,18 +437,18 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: true,
     };
   },
-  
+
   // ============================================
   // 图像分析
   // ============================================
   analyze_image: async (args, context) => {
     const imageData = resolveImageRef(args.image_ref, context.imageContext);
-    
+
     const result = await analyzeImage({
       imageData,
       analysisType: args.analysis_type || 'full',
     });
-    
+
     return {
       success: true,
       analysis: result.analysis,
@@ -401,19 +457,19 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: true,
     };
   },
-  
+
   // ============================================
   // 生成模特图
   // ============================================
   generate_model_image: async (args, context) => {
     const productImage = resolveImageRef(args.product_image, context.imageContext);
-    const modelReference = args.model_reference 
-      ? resolveImageRef(args.model_reference, context.imageContext) 
+    const modelReference = args.model_reference
+      ? resolveImageRef(args.model_reference, context.imageContext)
       : undefined;
-    const sceneReference = args.scene_reference 
-      ? resolveImageRef(args.scene_reference, context.imageContext) 
+    const sceneReference = args.scene_reference
+      ? resolveImageRef(args.scene_reference, context.imageContext)
       : undefined;
-    
+
     const images = await generateModelImage({
       productImage,
       modelReference,
@@ -424,7 +480,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       vibe: args.vibe,
       count: args.count,
     });
-    
+
     return {
       success: true,
       images,
@@ -432,23 +488,23 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: false,
     };
   },
-  
+
   // ============================================
   // 换搭配
   // ============================================
   change_outfit: async (args, context) => {
     const originalImage = resolveImageRef(args.original_image, context.imageContext);
-    const outfitImages = args.outfit_images.map((ref: string) => 
+    const outfitImages = args.outfit_images.map((ref: string) =>
       resolveImageRef(ref, context.imageContext)
     );
-    
+
     const images = await changeOutfit({
       originalImage,
       outfitImages,
       outfitInstruct: args.outfit_instruct,
       styleNotes: args.style_notes,
     });
-    
+
     return {
       success: true,
       images,
@@ -456,23 +512,23 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: false,
     };
   },
-  
+
   // ============================================
   // 换模特
   // ============================================
   change_model: async (args, context) => {
     const originalImage = resolveImageRef(args.original_image, context.imageContext);
-    const modelReference = args.model_reference 
-      ? resolveImageRef(args.model_reference, context.imageContext) 
+    const modelReference = args.model_reference
+      ? resolveImageRef(args.model_reference, context.imageContext)
       : undefined;
-    
+
     const images = await changeModel({
       originalImage,
       modelReference,
       modelStyle: args.model_style,
       modelGender: args.model_gender,
     });
-    
+
     return {
       success: true,
       images,
@@ -480,20 +536,20 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: false,
     };
   },
-  
+
   // ============================================
   // 复刻参考图
   // ============================================
   replicate_reference: async (args, context) => {
     const productImage = resolveImageRef(args.product_image, context.imageContext);
     const referenceImage = resolveImageRef(args.reference_image, context.imageContext);
-    
+
     const images = await replicateReference({
       productImage,
       referenceImage,
       elementsToReplicate: args.elements_to_replicate,
     });
-    
+
     return {
       success: true,
       images,
@@ -501,19 +557,19 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: false,
     };
   },
-  
+
   // ============================================
   // 编辑图片
   // ============================================
   edit_image: async (args, context) => {
     const image = resolveImageRef(args.image_ref, context.imageContext);
-    
+
     const images = await editImage({
       image,
       instruction: args.edit_instruction,
       region: args.edit_region,
     });
-    
+
     return {
       success: true,
       images,
@@ -521,7 +577,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: false,
     };
   },
-  
+
   // ============================================
   // 搜索资产（需要数据库查询）
   // ============================================
@@ -534,7 +590,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: true,
     };
   },
-  
+
   // ============================================
   // 获取预设（需要数据库查询）
   // ============================================
@@ -547,7 +603,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: true,
     };
   },
-  
+
   // ============================================
   // 保存到资产库（需要数据库操作）
   // ============================================
@@ -559,7 +615,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       shouldContinue: true,
     };
   },
-  
+
   // ============================================
   // 请求 GUI 输入
   // ============================================
@@ -585,17 +641,17 @@ function resolveImageRef(ref: string, imageContext: Record<string, string>): str
   if (!ref) {
     throw new Error('Image reference is required');
   }
-  
+
   // 如果在 context 中找到
   if (imageContext[ref]) {
     return imageContext[ref];
   }
-  
+
   // 如果是 URL 或 Base64，直接返回
   if (ref.startsWith('http') || ref.startsWith('data:')) {
     return ref;
   }
-  
+
   throw new Error(`Unknown image reference: ${ref}`);
 }
 
@@ -617,16 +673,32 @@ export function getToolDefinition(name: string) {
  * 执行 Tool
  */
 export async function executeTool(
-  name: string, 
-  args: Record<string, any>, 
+  name: string,
+  args: Record<string, any>,
   context: ToolContext
 ): Promise<any> {
   const executor = TOOL_EXECUTORS[name];
-  
+
   if (!executor) {
     throw new Error(`Tool not implemented: ${name}`);
   }
-  
+
+  // Validate arguments using zod schema if available
+  const schema = TOOL_SCHEMAS[name];
+  if (schema) {
+    const validation = schema.safeParse(args);
+    if (!validation.success) {
+      const errorMessages = validation.error.errors.map(e =>
+        `${e.path.join('.')}: ${e.message}`
+      ).join('; ');
+      return {
+        success: false,
+        error: `参数校验失败: ${errorMessages}`,
+        shouldContinue: true,
+      };
+    }
+  }
+
   return executor(args, context);
 }
 

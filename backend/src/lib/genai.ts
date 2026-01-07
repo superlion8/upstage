@@ -46,10 +46,10 @@ export function getGenAIClient(): GoogleGenAI {
  * Relaxed for fashion/clothing content
  */
 export const safetySettings: SafetySetting[] = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
   { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
 ];
 
 // ============================================
@@ -63,11 +63,11 @@ export function extractText(response: any): string | null {
   try {
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) return null;
-    
+
     const textParts = candidate.content.parts
       .filter((part: any) => part.text)
       .map((part: any) => part.text);
-    
+
     return textParts.join('').trim() || null;
   } catch {
     return null;
@@ -81,7 +81,7 @@ export function extractImages(response: any): Array<{ mimeType: string; data: st
   try {
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) return [];
-    
+
     return candidate.content.parts
       .filter((part: any) => part.inlineData)
       .map((part: any) => ({
@@ -105,9 +105,9 @@ export function extractThinking(response: any): string | null {
   try {
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) return null;
-    
+
     const thinkingTexts: string[] = [];
-    
+
     for (const part of candidate.content.parts) {
       // Gemini 3: thought=true 表示这是思考部分，实际文本在 text 字段
       if (part.thought === true && part.text && typeof part.text === 'string') {
@@ -125,7 +125,7 @@ export function extractThinking(response: any): string | null {
         thinkingTexts.push(part.thought);
       }
     }
-    
+
     // 检查 candidate 级别
     if (thinkingTexts.length === 0) {
       if (typeof candidate.thinking === 'string') {
@@ -134,7 +134,7 @@ export function extractThinking(response: any): string | null {
         thinkingTexts.push(candidate.thought);
       }
     }
-    
+
     return thinkingTexts.join('\n').trim() || null;
   } catch (err) {
     console.error('Error extracting thinking:', err);
@@ -149,7 +149,7 @@ export function extractFunctionCalls(response: any): Array<{ name: string; args:
   try {
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) return [];
-    
+
     return candidate.content.parts
       .filter((part: any) => part.functionCall)
       .map((part: any) => ({
@@ -181,7 +181,7 @@ export function createImagePart(imageData: string, mimeType?: string): any {
       };
     }
   }
-  
+
   // Handle pure base64 (assume JPEG if no mime type provided)
   if (!imageData.startsWith('http')) {
     return {
@@ -191,7 +191,7 @@ export function createImagePart(imageData: string, mimeType?: string): any {
       },
     };
   }
-  
+
   // Handle URL
   return {
     fileData: {
@@ -245,7 +245,7 @@ export function isBlocked(response: any): boolean {
 export function getBlockReason(response: any): string | null {
   const candidate = response.candidates?.[0];
   if (!isBlocked(response)) return null;
-  
+
   const safetyRatings = candidate?.safetyRatings || [];
   const blocked = safetyRatings.find((r: any) => r.blocked);
   return blocked ? `Blocked by ${blocked.category}` : 'Unknown safety block';

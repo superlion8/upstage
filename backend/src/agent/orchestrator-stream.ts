@@ -57,6 +57,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   'edit_image': '编辑图片',
 };
 
+// 控制是否向前端暴露 thinking 内容（默认关闭，仅开发模式开启）
+const EXPOSE_THINKING = process.env.EXPOSE_THINKING === 'true';
+
 // ============================================
 // Streaming Agent Generator
 // ============================================
@@ -67,18 +70,18 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
  */
 export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamEvent> {
   const client = getGenAIClient();
-  
-  logger.info('Starting streaming agent run', { 
-    userId: input.userId, 
+
+  logger.info('Starting streaming agent run', {
+    userId: input.userId,
     conversationId: input.conversationId,
   });
-  
+
   // 构建图片上下文
   const imageContext: Record<string, string> = {};
-  
+
   // 构建初始历史消息
   const initialHistory = buildInitialHistory(input, imageContext);
-  
+
   // 创建 Chat Session - SDK 自动管理 thought_signature
   const chat = client.chats.create({
     model: THINKING_MODEL,
@@ -93,19 +96,19 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
     },
     history: initialHistory,
   });
-  
+
   // 构建当前消息的 parts
   const currentParts = buildCurrentMessageParts(input, imageContext);
-  
+
   logger.info('Chat session created', {
     historyLength: initialHistory.length,
     currentPartsCount: currentParts.length,
   });
-  
+
   // Agent Loop
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     logger.info(`Agent iteration ${iteration + 1}/${MAX_ITERATIONS}`);
-    
+
     try {
       // 发送消息 - SDK 自动处理 thought_signature
       let response;
@@ -121,53 +124,53 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         logger.warn('Unexpected iteration without pending message');
         break;
       }
-      
+
       const candidate = response.candidates?.[0];
       if (!candidate) {
         yield { type: 'error', data: { message: 'No response from agent' } };
         return;
       }
-      
+
       const parts = candidate.content?.parts || [];
       console.log(`[Iteration ${iteration + 1}] Response parts:`, parts.map((p: any) => Object.keys(p)));
-      
+
       // 提取并输出 thinking
       const thinkingText = extractThinkingFromParts(parts);
-      if (thinkingText) {
+      if (thinkingText && EXPOSE_THINKING) {
         yield { type: 'thinking', data: { content: thinkingText } };
       }
-      
+
       // 检查是否有工具调用
       const functionCalls = extractFunctionCalls(response);
-      
+
       if (functionCalls.length > 0) {
         // 处理工具调用
         for (const functionCall of functionCalls) {
           const displayName = TOOL_DISPLAY_NAMES[functionCall.name] || functionCall.name;
-          
-          yield { 
-            type: 'tool_start', 
-            data: { 
-              tool: functionCall.name, 
+
+          yield {
+            type: 'tool_start',
+            data: {
+              tool: functionCall.name,
               displayName,
               arguments: functionCall.args,
-            } 
+            }
           };
-          
+
           // 执行工具
           const toolContext: ToolContext = {
             userId: input.userId,
             conversationId: input.conversationId,
             imageContext,
           };
-          
+
           let toolResult;
           try {
             toolResult = await executeTool(functionCall.name, functionCall.args, toolContext);
-            
-            yield { 
-              type: 'tool_result', 
-              data: { 
+
+            yield {
+              type: 'tool_result',
+              data: {
                 tool: functionCall.name,
                 displayName,
                 arguments: functionCall.args,
@@ -176,9 +179,9 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
                   message: toolResult.message,
                   hasImages: !!toolResult.images?.length,
                 },
-              } 
+              }
             };
-            
+
             // 输出生成的图片
             if (toolResult.images) {
               for (const img of toolResult.images) {
@@ -189,27 +192,27 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
                 }
               }
             }
-            
+
           } catch (toolError) {
             logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
-            toolResult = { 
-              success: false, 
-              error: toolError instanceof Error ? toolError.message : 'Unknown error' 
+            toolResult = {
+              success: false,
+              error: toolError instanceof Error ? toolError.message : 'Unknown error'
             };
-            
-            yield { 
-              type: 'tool_result', 
-              data: { 
+
+            yield {
+              type: 'tool_result',
+              data: {
                 tool: functionCall.name,
                 displayName,
                 result: {
                   success: false,
                   message: toolResult.error,
                 },
-              } 
+              }
             };
           }
-          
+
           // 发送工具响应 - SDK 自动处理 thought_signature
           console.log(`[Iteration ${iteration + 1}] Sending function response for ${functionCall.name}`);
           const nextResponse = await chat.sendMessage([{
@@ -218,39 +221,39 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
               response: toolResult,
             },
           }]);
-          
+
           const nextCandidate = nextResponse.candidates?.[0];
           if (!nextCandidate) {
             yield { type: 'error', data: { message: 'No response after tool execution' } };
             return;
           }
-          
+
           const nextParts = nextCandidate.content?.parts || [];
           console.log(`[After tool] Response parts:`, nextParts.map((p: any) => Object.keys(p)));
-          
+
           // 提取并输出 thinking
           const nextThinking = extractThinkingFromParts(nextParts);
-          if (nextThinking) {
+          if (nextThinking && EXPOSE_THINKING) {
             yield { type: 'thinking', data: { content: nextThinking } };
           }
-          
+
           // 检查是否有更多工具调用
           const nextFunctionCalls = extractFunctionCalls(nextResponse);
-          
+
           if (nextFunctionCalls.length > 0) {
             // 还有更多工具调用，递归处理
             for await (const event of processToolCalls(
-              chat, 
-              nextFunctionCalls, 
-              input, 
-              imageContext, 
+              chat,
+              nextFunctionCalls,
+              input,
+              imageContext,
               iteration + 1
             )) {
               yield event;
             }
             return;
           }
-          
+
           // 没有更多工具调用，输出最终文本
           const finalText = extractText(nextResponse);
           if (finalText) {
@@ -267,7 +270,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       } else {
         // 没有工具调用，输出文本响应
         const textResponse = extractText(response) || '有什么我可以帮助您的吗？';
-        
+
         const chunks = splitIntoChunks(textResponse, 10);
         for (const chunk of chunks) {
           yield { type: 'text_delta', data: { delta: chunk } };
@@ -275,30 +278,30 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         }
         return;
       }
-      
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      
-      logger.error('Agent iteration error', { 
-        iteration, 
+
+      logger.error('Agent iteration error', {
+        iteration,
         errorMessage,
         errorStack,
         errorType: error?.constructor?.name,
       });
-      
-      yield { 
-        type: 'error', 
-        data: { 
+
+      yield {
+        type: 'error',
+        data: {
           message: errorMessage,
           details: errorStack,
           iteration: iteration + 1,
-        } 
+        }
       };
       return;
     }
   }
-  
+
   yield { type: 'text_delta', data: { delta: '已完成多轮处理，如需进一步调整请告诉我。' } };
 }
 
@@ -317,32 +320,32 @@ async function* processToolCalls(
     yield { type: 'text_delta', data: { delta: '已达到最大处理深度。' } };
     return;
   }
-  
+
   for (const functionCall of functionCalls) {
     const displayName = TOOL_DISPLAY_NAMES[functionCall.name] || functionCall.name;
-    
-    yield { 
-      type: 'tool_start', 
-      data: { 
-        tool: functionCall.name, 
+
+    yield {
+      type: 'tool_start',
+      data: {
+        tool: functionCall.name,
         displayName,
         arguments: functionCall.args,
-      } 
+      }
     };
-    
+
     const toolContext: ToolContext = {
       userId: input.userId,
       conversationId: input.conversationId,
       imageContext,
     };
-    
+
     let toolResult;
     try {
       toolResult = await executeTool(functionCall.name, functionCall.args, toolContext);
-      
-      yield { 
-        type: 'tool_result', 
-        data: { 
+
+      yield {
+        type: 'tool_result',
+        data: {
           tool: functionCall.name,
           displayName,
           arguments: functionCall.args,
@@ -351,9 +354,9 @@ async function* processToolCalls(
             message: toolResult.message,
             hasImages: !!toolResult.images?.length,
           },
-        } 
+        }
       };
-      
+
       if (toolResult.images) {
         for (const img of toolResult.images) {
           yield { type: 'image', data: img };
@@ -362,27 +365,27 @@ async function* processToolCalls(
           }
         }
       }
-      
+
     } catch (toolError) {
       logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
-      toolResult = { 
-        success: false, 
-        error: toolError instanceof Error ? toolError.message : 'Unknown error' 
+      toolResult = {
+        success: false,
+        error: toolError instanceof Error ? toolError.message : 'Unknown error'
       };
-      
-      yield { 
-        type: 'tool_result', 
-        data: { 
+
+      yield {
+        type: 'tool_result',
+        data: {
           tool: functionCall.name,
           displayName,
           result: {
             success: false,
             message: toolResult.error,
           },
-        } 
+        }
       };
     }
-    
+
     // 发送工具响应
     console.log(`[Depth ${depth}] Sending function response for ${functionCall.name}`);
     const nextResponse = await chat.sendMessage([{
@@ -391,38 +394,38 @@ async function* processToolCalls(
         response: toolResult,
       },
     }]);
-    
+
     const nextCandidate = nextResponse.candidates?.[0];
     if (!nextCandidate) {
       yield { type: 'error', data: { message: 'No response after tool execution' } };
       return;
     }
-    
+
     const nextParts = nextCandidate.content?.parts || [];
-    
+
     // 提取 thinking
     const nextThinking = extractThinkingFromParts(nextParts);
-    if (nextThinking) {
+    if (nextThinking && EXPOSE_THINKING) {
       yield { type: 'thinking', data: { content: nextThinking } };
     }
-    
+
     // 检查是否有更多工具调用
     const nextFunctionCalls = extractFunctionCalls(nextResponse);
-    
+
     if (nextFunctionCalls.length > 0) {
       // 递归处理
       for await (const event of processToolCalls(
-        chat, 
-        nextFunctionCalls, 
-        input, 
-        imageContext, 
+        chat,
+        nextFunctionCalls,
+        input,
+        imageContext,
         depth + 1
       )) {
         yield event;
       }
       return;
     }
-    
+
     // 输出最终文本
     const finalText = extractText(nextResponse);
     if (finalText) {
@@ -444,13 +447,13 @@ async function* processToolCalls(
 
 function extractThinkingFromParts(parts: any[]): string | null {
   const thinkingTexts: string[] = [];
-  
+
   for (const part of parts) {
     if (part.thought === true && part.text && typeof part.text === 'string') {
       thinkingTexts.push(part.text);
     }
   }
-  
+
   return thinkingTexts.join('\n').trim() || null;
 }
 
@@ -471,11 +474,11 @@ function sleep(ms: number): Promise<void> {
  */
 function buildInitialHistory(input: AgentInput, imageContext: Record<string, string>): any[] {
   const history: any[] = [];
-  
+
   // 添加对话历史
   for (const msg of input.conversationHistory.slice(-10)) {
     const parts: any[] = [];
-    
+
     if (msg.content.images) {
       for (const img of msg.content.images) {
         imageContext[img.id] = img.data;
@@ -487,11 +490,11 @@ function buildInitialHistory(input: AgentInput, imageContext: Record<string, str
         });
       }
     }
-    
+
     if (msg.content.text) {
       parts.push({ text: msg.content.text });
     }
-    
+
     if (parts.length > 0) {
       history.push({
         role: msg.role === 'user' ? 'user' : 'model',
@@ -499,7 +502,7 @@ function buildInitialHistory(input: AgentInput, imageContext: Record<string, str
       });
     }
   }
-  
+
   return history;
 }
 
@@ -508,13 +511,13 @@ function buildInitialHistory(input: AgentInput, imageContext: Record<string, str
  */
 function buildCurrentMessageParts(input: AgentInput, imageContext: Record<string, string>): any[] {
   const parts: any[] = [];
-  
+
   if (input.message.images) {
     for (let i = 0; i < input.message.images.length; i++) {
       const img = input.message.images[i];
       const imageId = `image_${i + 1}`;
       imageContext[imageId] = img.data;
-      
+
       parts.push({
         inlineData: {
           mimeType: img.mimeType,
@@ -522,14 +525,14 @@ function buildCurrentMessageParts(input: AgentInput, imageContext: Record<string
         },
       });
     }
-    
+
     const imageLabels = input.message.images.map((_, i) => `图${i + 1}`).join('、');
     parts.push({ text: `[用户上传了 ${input.message.images.length} 张图片: ${imageLabels}]` });
   }
-  
+
   if (input.message.text) {
     parts.push({ text: input.message.text });
   }
-  
+
   return parts;
 }

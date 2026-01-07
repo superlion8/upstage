@@ -97,34 +97,31 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
   const client = getGenAIClient();
   const toolCalls: ToolCallRecord[] = [];
   let thinking = '';
-  
-  logger.info('Starting agent run', { 
-    userId: input.userId, 
+
+  logger.info('Starting agent run', {
+    userId: input.userId,
     conversationId: input.conversationId,
     hasText: !!input.message.text,
     imageCount: input.message.images?.length || 0,
   });
-  
+
   // Build initial context
   let context = buildContext(input);
-  
+
   // Agent Loop
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     logger.debug(`Agent iteration ${iteration + 1}/${MAX_ITERATIONS}`);
-    
+
     try {
       // Call Thinking LLM
       logger.info(`Calling LLM model: ${THINKING_MODEL}`);
       const llmStartTime = Date.now();
-      
+
       const response = await client.models.generateContent({
         model: THINKING_MODEL,
-        contents: [
-          { role: 'user', parts: [{ text: AGENT_SYSTEM_PROMPT }] },
-          { role: 'model', parts: [{ text: '我理解了，我是 Onstage 的 AI 助手，专门帮助用户生成服饰营销内容。我会根据用户的需求选择合适的工具来完成任务。' }] },
-          ...context.messages,
-        ],
+        contents: context.messages,
         config: {
+          systemInstruction: AGENT_SYSTEM_PROMPT,
           tools: [{ functionDeclarations: AGENT_TOOLS as any }],
           safetySettings,
           // 启用 thinking 输出
@@ -134,14 +131,14 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
           },
         },
       });
-      
+
       logger.info(`LLM response received`, { duration: Date.now() - llmStartTime });
-      
+
       const candidate = response.candidates?.[0];
       if (!candidate) {
         throw new Error('No response from agent');
       }
-      
+
       // 调试：打印完整的 candidate 结构（部分）
       logger.debug('Candidate structure', {
         hasContent: !!candidate.content,
@@ -149,29 +146,27 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         partTypes: candidate.content?.parts?.map((p: any) => Object.keys(p)) || [],
         candidateKeys: Object.keys(candidate),
       });
-      
+
       // Extract thinking process (if model supports it)
       const iterationThinking = extractThinking(response);
-      logger.info('Thinking extraction result', { 
-        hasThinking: !!iterationThinking, 
+      logger.info('Thinking extraction result', {
+        hasThinking: !!iterationThinking,
         thinkingLength: iterationThinking?.length || 0,
         thinkingPreview: iterationThinking?.slice(0, 100) || 'none',
       });
       if (iterationThinking) {
         thinking += iterationThinking + '\n';
       }
-      
+
       // Check for function calls
       const functionCalls = extractFunctionCalls(response);
-      
+
       if (functionCalls.length > 0) {
-        const functionCall = functionCalls[0]; // Handle one at a time
-        
-        logger.info('Tool call detected', { tool: functionCall.name, args: functionCall.args });
-        
+        logger.info('Tool calls detected', { count: functionCalls.length, tools: functionCalls.map(fc => fc.name) });
+
         // 提取模型响应的完整 parts（包含 thought 和 thought_signature）
         const modelParts = candidate.content?.parts || [];
-        
+
         // 调试日志：查看 modelParts 结构
         logger.info('Model parts structure', {
           partsCount: modelParts.length,
@@ -180,116 +175,138 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
           hasThoughtSignature: modelParts.some((p: any) => p.thoughtSignature),
           hasFunctionCall: modelParts.some((p: any) => p.functionCall),
         });
-        
-        // Execute tool
+
+        // Execute tool context
         const toolContext: ToolContext = {
           userId: input.userId,
           conversationId: input.conversationId,
           imageContext: context.imageContext,
         };
-        
-        try {
-          const toolResult = await executeTool(functionCall.name, functionCall.args, toolContext);
-          
-          // Record tool call
-          toolCalls.push({
-            tool: functionCall.name,
-            arguments: functionCall.args,
-            result: toolResult,
-            timestamp: new Date(),
-          });
-          
-          logger.info('Tool executed successfully', { 
-            tool: functionCall.name, 
-            hasImages: !!toolResult.images,
-            shouldContinue: toolResult.shouldContinue,
-          });
-          
-          // Check if this is a GUI request - 需要用户输入，直接返回
-          if (functionCall.name === 'request_gui_input') {
-            return {
-              response: {
+
+        // 收集所有工具执行结果
+        const toolResults: Array<{ name: string; args: Record<string, any>; result: any }> = [];
+        let shouldEndLoop = false;
+        let guiRequest: any = null;
+
+        // 执行所有 function calls
+        for (const functionCall of functionCalls) {
+          logger.info('Executing tool', { tool: functionCall.name, args: functionCall.args });
+
+          try {
+            const toolResult = await executeTool(functionCall.name, functionCall.args, toolContext);
+
+            // Record tool call
+            toolCalls.push({
+              tool: functionCall.name,
+              arguments: functionCall.args,
+              result: toolResult,
+              timestamp: new Date(),
+            });
+
+            toolResults.push({
+              name: functionCall.name,
+              args: functionCall.args,
+              result: toolResult,
+            });
+
+            logger.info('Tool executed successfully', {
+              tool: functionCall.name,
+              hasImages: !!toolResult.images,
+              shouldContinue: toolResult.shouldContinue,
+            });
+
+            // Check if this is a GUI request - 需要用户输入，直接返回
+            if (functionCall.name === 'request_gui_input') {
+              guiRequest = {
                 text: toolResult.message || '请在下方完成操作',
                 guiRequest: {
                   type: functionCall.args.gui_type,
                   message: functionCall.args.message,
                   prefillData: functionCall.args.prefill_data,
                 },
-              },
-              toolCalls,
-              thinking,
-            };
+              };
+              shouldEndLoop = true;
+              break;
+            }
+
+            // 如果工具返回了图片且标记为不需要继续，则标记结束
+            if (toolResult.images && toolResult.shouldContinue === false) {
+              shouldEndLoop = true;
+              // 不 break，继续执行剩余工具（如果有的话）
+            }
+
+          } catch (toolError) {
+            logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
+
+            // 工具执行失败，记录失败信息
+            const errorResult = { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' };
+
+            toolCalls.push({
+              tool: functionCall.name,
+              arguments: functionCall.args,
+              result: errorResult,
+              timestamp: new Date(),
+            });
+
+            toolResults.push({
+              name: functionCall.name,
+              args: functionCall.args,
+              result: errorResult,
+            });
           }
-          
-          // 将工具结果添加到上下文，让模型继续思考
-          context = appendToolResult(
-            context, 
-            functionCall.name, 
-            functionCall.args, 
-            toolResult,
-            modelParts  // 传入完整的 model parts（包含 thought_signature）
-          );
-          
-          // 如果工具返回了图片且标记为不需要继续，则直接返回
-          // 否则继续 loop 让模型决定下一步
-          if (toolResult.images && toolResult.shouldContinue === false) {
-            logger.info('Tool returned images and marked as complete, ending loop');
-            return {
-              response: {
-                text: toolResult.message || '图片已生成完成 ✨',
-                generatedImages: toolResult.images,
-              },
-              toolCalls,
-              thinking,
-            };
-          }
-          
-          // 继续下一轮迭代，让模型看到工具结果并决定下一步
-          logger.info('Continuing agent loop after tool execution');
-          continue;
-          
-        } catch (toolError) {
-          logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
-          
-          // 工具执行失败，记录失败信息
-          toolCalls.push({
-            tool: functionCall.name,
-            arguments: functionCall.args,
-            result: { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' },
-            timestamp: new Date(),
-          });
-          
-          // 将错误信息添加到上下文，让模型决定如何处理
-          context = appendToolResult(
-            context, 
-            functionCall.name, 
-            functionCall.args, 
-            { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' },
-            modelParts
-          );
-          
-          // 继续让模型处理错误情况
-          continue;
         }
+
+        // 如果是 GUI 请求，直接返回
+        if (guiRequest) {
+          return {
+            response: guiRequest,
+            toolCalls,
+            thinking,
+          };
+        }
+
+        // 将所有工具结果添加到上下文
+        context = appendMultipleToolResults(context, toolResults, modelParts);
+
+        // 如果标记为结束，返回结果
+        if (shouldEndLoop) {
+          const generatedImages = toolCalls
+            .filter(tc => tc.result?.images)
+            .flatMap(tc => tc.result.images);
+
+          logger.info('Tool returned images and marked as complete, ending loop');
+          return {
+            response: {
+              text: '图片已生成完成 ✨',
+              generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
+            },
+            toolCalls,
+            thinking,
+          };
+        }
+
+        // 继续下一轮迭代，让模型看到工具结果并决定下一步
+        logger.info('Continuing agent loop after tool execution');
+        continue;
       }
-      
+
       // No tool call - model is ready to give final response
       logger.info('No tool call detected, extracting final response', { iteration: iteration + 1 });
-      
+
       const textResponse = extractText(response);
-      
+
       // Collect all generated images from tool calls
       const generatedImages = toolCalls
         .filter(tc => tc.result?.images)
         .flatMap(tc => tc.result.images);
-      
-      logger.info('Agent loop completed', { 
-        totalIterations: iteration + 1, 
+
+      logger.info('Agent loop completed', {
+        totalIterations: iteration + 1,
         totalToolCalls: toolCalls.length,
         hasGeneratedImages: generatedImages.length > 0,
         thinkingLength: thinking.length,
       });
-      
+
       return {
         response: {
           text: textResponse || '任务完成！如果需要进一步调整，请告诉我。',
@@ -298,20 +315,20 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         toolCalls,
         thinking,
       };
-      
+
     } catch (error) {
       logger.error('Agent iteration error', { iteration, error });
       throw error;
     }
   }
-  
+
   // Max iterations reached
   logger.warn('Agent reached max iterations');
-  
+
   const generatedImages = toolCalls
     .filter(tc => tc.result?.images)
     .flatMap(tc => tc.result.images);
-  
+
   return {
     response: {
       text: '我已经完成了多轮处理，这是目前的结果。如果需要进一步调整，请告诉我。',
@@ -332,17 +349,17 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
 function buildContext(input: AgentInput): AgentContext {
   const messages: any[] = [];
   const imageContext: Record<string, string> = {};
-  
+
   // Add conversation history (last 10 turns)
   const recentHistory = input.conversationHistory.slice(-10);
   for (const msg of recentHistory) {
     if (msg.role === 'user') {
       const parts: any[] = [];
-      
+
       if (msg.content.text) {
         parts.push({ text: msg.content.text });
       }
-      
+
       if (msg.content.images) {
         for (const img of msg.content.images) {
           parts.push({
@@ -353,7 +370,7 @@ function buildContext(input: AgentInput): AgentContext {
           });
         }
       }
-      
+
       if (parts.length > 0) {
         messages.push({ role: 'user', parts });
       }
@@ -364,19 +381,19 @@ function buildContext(input: AgentInput): AgentContext {
       });
     }
   }
-  
+
   // Add current message
   const currentParts: any[] = [];
-  
+
   // Process uploaded images
   if (input.message.images && input.message.images.length > 0) {
     for (let i = 0; i < input.message.images.length; i++) {
       const img = input.message.images[i];
       const imageId = `image_${i + 1}`;
-      
+
       // Store in imageContext for tool use
       imageContext[imageId] = img.data;
-      
+
       // Add image to message
       currentParts.push({
         inlineData: {
@@ -385,23 +402,51 @@ function buildContext(input: AgentInput): AgentContext {
         },
       });
     }
-    
+
     // Add image labels to text
     const imageLabels = input.message.images.map((_, i) => `图${i + 1}`).join('、');
     const imageNote = `[用户上传了 ${input.message.images.length} 张图片: ${imageLabels}]`;
     currentParts.push({ text: imageNote });
   }
-  
+
   // Add text
   if (input.message.text) {
     currentParts.push({ text: input.message.text });
   }
-  
+
   if (currentParts.length > 0) {
     messages.push({ role: 'user', parts: currentParts });
   }
-  
+
   return { messages, imageContext };
+}
+
+/**
+ * Filter model parts to remove thought text while keeping thoughtSignature
+ * This prevents context bloat from large thinking content
+ */
+function filterModelParts(modelParts: any[]): any[] {
+  return modelParts
+    .filter((p: any) => {
+      // Remove pure thought parts (no signature)
+      if (p.thought === true && !p.thoughtSignature) {
+        return false;
+      }
+      return true;
+    })
+    .map((p: any) => {
+      // For parts with both thought and signature, keep only signature
+      if (p.thought && p.thoughtSignature) {
+        return { thoughtSignature: p.thoughtSignature };
+      }
+      // Remove thought text from parts that have it
+      if (p.thought === true && p.text) {
+        const { thought, text, ...rest } = p;
+        return rest;
+      }
+      return p;
+    })
+    .filter((p: any) => Object.keys(p).length > 0);
 }
 
 /**
@@ -409,8 +454,8 @@ function buildContext(input: AgentInput): AgentContext {
  * @param modelParts - 模型响应的完整 parts（包含 thought、thought_signature 和 functionCall）
  */
 function appendToolResult(
-  context: AgentContext, 
-  toolName: string, 
+  context: AgentContext,
+  toolName: string,
   toolArgs: Record<string, any>,
   result: any,
   modelParts?: any[]
@@ -421,15 +466,18 @@ function appendToolResult(
     modelPartsCount: modelParts?.length || 0,
     modelPartTypes: modelParts?.map((p: any) => Object.keys(p)) || [],
   });
-  
-  // 添加模型响应（包含完整的 parts 以保留 thought_signature）
+
+  // 添加模型响应（过滤掉 thought 文本以防止上下文膨胀）
   if (modelParts && modelParts.length > 0) {
-    // 使用模型返回的完整 parts（包含 thought, thought_signature, functionCall）
+    const filteredParts = filterModelParts(modelParts);
     context.messages.push({
       role: 'model',
-      parts: modelParts,
+      parts: filteredParts,
     });
-    logger.info('Added model parts to context', { partsCount: modelParts.length });
+    logger.info('Added filtered model parts to context', {
+      originalCount: modelParts.length,
+      filteredCount: filteredParts.length
+    });
   } else {
     // 兜底：如果没有 modelParts，使用简化版本
     logger.warn('No modelParts provided, using fallback');
@@ -443,7 +491,7 @@ function appendToolResult(
       }],
     });
   }
-  
+
   // 添加函数响应
   context.messages.push({
     role: 'user',
@@ -454,7 +502,7 @@ function appendToolResult(
       },
     }],
   });
-  
+
   // If result contains images, add them to imageContext
   if (result.images) {
     for (let i = 0; i < result.images.length; i++) {
@@ -467,9 +515,60 @@ function appendToolResult(
       }
     }
   }
-  
+
   return context;
 }
 
+/**
+ * Append multiple tool results to context
+ * Used when Gemini returns multiple function calls in a single response
+ */
+function appendMultipleToolResults(
+  context: AgentContext,
+  toolResults: Array<{ name: string; args: Record<string, any>; result: any }>,
+  modelParts?: any[]
+): AgentContext {
+  logger.info('appendMultipleToolResults called', {
+    toolCount: toolResults.length,
+    tools: toolResults.map(t => t.name),
+  });
 
+  // 添加模型响应（过滤掉 thought 文本）
+  if (modelParts && modelParts.length > 0) {
+    const filteredParts = filterModelParts(modelParts);
+    context.messages.push({
+      role: 'model',
+      parts: filteredParts,
+    });
+  }
 
+  // 添加所有函数响应
+  const functionResponses = toolResults.map(({ name, result }) => ({
+    functionResponse: {
+      name,
+      response: result,
+    },
+  }));
+
+  context.messages.push({
+    role: 'user',
+    parts: functionResponses,
+  });
+
+  // 更新 imageContext
+  for (const { name, result } of toolResults) {
+    if (result.images) {
+      for (let i = 0; i < result.images.length; i++) {
+        const img = result.images[i];
+        const imageId = `generated_${name}_${i + 1}`;
+        if (img.data) {
+          context.imageContext[imageId] = img.data;
+        } else if (img.url) {
+          context.imageContext[imageId] = img.url;
+        }
+      }
+    }
+  }
+
+  return context;
+}
