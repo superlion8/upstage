@@ -192,10 +192,20 @@ export function createImagePart(imageData: string, mimeType?: string): any {
     };
   }
 
-  // Handle URL
+  // Handle URL - need to guess mime type from extension or default to jpeg
+  let urlMimeType = mimeType || 'image/jpeg';
+  if (imageData.toLowerCase().endsWith('.png')) {
+    urlMimeType = 'image/png';
+  } else if (imageData.toLowerCase().endsWith('.gif')) {
+    urlMimeType = 'image/gif';
+  } else if (imageData.toLowerCase().endsWith('.webp')) {
+    urlMimeType = 'image/webp';
+  }
+
   return {
     fileData: {
       fileUri: imageData,
+      mimeType: urlMimeType,
     },
   };
 }
