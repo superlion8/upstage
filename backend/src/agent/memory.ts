@@ -35,10 +35,20 @@ export class MemoryManager {
     /**
      * 构建图片注册表描述文本，用于注入 System Prompt
      */
-    static getRegistryPrompt(imageRegistry: string[]): string {
+    static getRegistryPrompt(imageRegistry: { id: string, desc: string }[]): string {
         if (imageRegistry.length === 0) return '';
 
-        return `\n\n## 当前会话图片资产注册表 (Image Registry)\n如果你需要引用图片，请使用以下 ID：\n${imageRegistry.map(item => `- ${item}`).join('\n')}\n\n注意：旧历史中的图片数据已被剥离以节省 token，请优先根据 ID 引用。`;
+        const lines = imageRegistry.map((item, index) => {
+            const num = index + 1;
+            return `[图${num}] ID: ${item.id} (${item.desc})`;
+        });
+
+        return `\n\n## 当前会话图片资产注册表 (Image Registry)
+如果你需要引用图片，请使用 Registry 中的 ID。
+用户提到的“图1”、“图2”通常对应下方列表的顺序：
+${lines.map(line => `- ${line}`).join('\n')}
+
+注意：旧历史中的图片数据已被剥离以节省 token，请务必根据 ID 引用。`;
     }
 
     /**
@@ -70,7 +80,7 @@ export class MemoryManager {
     static buildInitialHistory(
         input: AgentInput,
         imageContext: Record<string, string>,
-        imageRegistry: string[]
+        imageRegistry: { id: string, desc: string }[]
     ): any[] {
         const history: any[] = [];
         const FULL_CONTEXT_WINDOW = 6; // 最近 6 条消息（约 3 轮对话）保留完整数据
@@ -83,44 +93,46 @@ export class MemoryManager {
             const isWithinWindow = (totalCount - i) <= FULL_CONTEXT_WINDOW;
             const parts: any[] = [];
 
-            // 1. 处理用户上传图片
-            if (msg.content.images) {
-                for (const img of msg.content.images) {
-                    if (img.id && img.data) {
-                        imageContext[img.id] = img.data;
+            // 1. 处理上传图片 (images 数组)
+            const allImages = [...(msg.content.images || []), ...(msg.content.generatedImages || [])];
 
-                        const desc = `[用户上传] ID: ${img.id}`;
-                        if (!imageRegistry.includes(desc)) imageRegistry.push(desc);
+            if (allImages.length > 0) {
+                for (const img of allImages) {
+                    if (img.id) {
+                        // 同步到 context，方便工具使用 (如果有 data)
+                        if ((img as any).data) {
+                            imageContext[img.id] = (img as any).data;
+                        } else if ((img as any).url && (img as any).url.startsWith('data:')) {
+                            imageContext[img.id] = (img as any).url;
+                        }
 
-                        if (isWithinWindow) {
-                            const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
+                        // 注册 ID
+                        const isGenerated = !!(img as any).url;
+                        const desc = isGenerated ? '生成结果' : '用户上传';
+                        if (!imageRegistry.find(r => r.id === img.id)) {
+                            imageRegistry.push({ id: img.id, desc });
+                        }
+
+                        // 如果在窗口内且有 base64 数据，则放入 history.parts 以便模型直观看到
+                        const hasData = (img as any).data || ((img as any).url && (img as any).url.startsWith('data:'));
+                        if (isWithinWindow && hasData) {
+                            const rawData = (img as any).data || (img as any).url;
+                            const base64Data = rawData.replace(/^data:image\/\w+;base64,/, '');
                             parts.push({
                                 inlineData: {
-                                    mimeType: img.mimeType || 'image/jpeg',
+                                    mimeType: (img as any).mimeType || 'image/jpeg',
                                     data: base64Data,
                                 },
                             });
-                        } else {
-                            parts.push({ text: `[已缓存图片: ${img.id}]` });
                         }
+
+                        // 始终添加一个文本标记，方便模型在 context 中对齐 ID
+                        parts.push({ text: `[图片 ID: ${img.id} (${desc})]` });
                     }
                 }
             }
 
-            // 2. 处理已生成的图片（同步到注册表，用于引用）
-            if (msg.content.generatedImages) {
-                for (const img of msg.content.generatedImages) {
-                    if (img.id && img.url) {
-                        if (img.url.startsWith('data:')) {
-                            imageContext[img.id] = img.url;
-                        }
-                        const desc = `[生成结果] ID: ${img.id}`;
-                        if (!imageRegistry.includes(desc)) imageRegistry.push(desc);
-                    }
-                }
-            }
-
-            // 3. 处理文本
+            // 2. 处理文本内容
             if (msg.content.text) {
                 parts.push({ text: msg.content.text });
             }
@@ -142,7 +154,7 @@ export class MemoryManager {
     static buildCurrentMessageParts(
         input: AgentInput,
         imageContext: Record<string, string>,
-        imageRegistry: string[]
+        imageRegistry: { id: string, desc: string }[]
     ): any[] {
         const parts: any[] = [];
 
@@ -152,8 +164,9 @@ export class MemoryManager {
                 const imageId = img.id || `image_${Date.now()}_${i}`;
                 imageContext[imageId] = img.data;
 
-                const desc = `[当前上传] ID: ${imageId}`;
-                if (!imageRegistry.includes(desc)) imageRegistry.push(desc);
+                if (!imageRegistry.find(r => r.id === imageId)) {
+                    imageRegistry.push({ id: imageId, desc: '当前上传' });
+                }
 
                 const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
 

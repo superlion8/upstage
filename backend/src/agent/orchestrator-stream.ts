@@ -52,7 +52,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
 
   // 构建图片上下文和注册表描述
   const imageContext: Record<string, string> = {};
-  const imageRegistry: string[] = [];
+  const imageRegistry: { id: string, desc: string }[] = [];
 
   // 使用 MemoryManager 构建初始历史和当前消息
   const initialHistory = MemoryManager.buildInitialHistory(input, imageContext, imageRegistry);
