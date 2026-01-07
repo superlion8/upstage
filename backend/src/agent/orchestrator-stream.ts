@@ -79,10 +79,11 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
   // 构建图片上下文
   const imageContext: Record<string, string> = {};
 
-  // 构建初始历史消息
-  const initialHistory = buildInitialHistory(input, imageContext);
+  // 注意：当使用 thinking mode + function calling 时，不能传入旧的 history
+  // 因为旧 history 不包含 thought_signature，会导致 API 报错
+  // 解决方案：每次创建新的 Chat session，上下文通过 user message 传递
 
-  // 创建 Chat Session - SDK 自动管理 thought_signature
+  // 创建 Chat Session - 不传入 history 以避免 thought_signature 冲突
   const chat = client.chats.create({
     model: THINKING_MODEL,
     config: {
@@ -94,7 +95,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         includeThoughts: true,
       },
     },
-    history: initialHistory,
+    // 不传入 history - SDK 会自动在当前会话中管理 thought_signature
   });
 
   // 构建当前消息的 parts
