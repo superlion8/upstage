@@ -46,9 +46,12 @@ enum OnboardingStep {
 
 // MARK: - Main View
 struct BrandOnboardingView: SwiftUI.View {
-  @SwiftUI.State private var webLink: String = ""
-  @SwiftUI.State private var insLink: String = ""
-  @SwiftUI.State private var videoUrl: String = ""
+  @SwiftUI.State private var webLink: String =
+    "https://wittmore.com/collections/gramicci/products/gramicci-charcoal-grey-mohair-sweater?variant=42259036897342"
+  @SwiftUI.State private var insLink: String =
+    "https://www.instagram.com/urbanoutfitters/p/DTDqX4mktXQ/?img_index=5"
+  @SwiftUI.State private var videoUrl: String =
+    "https://www.tiktok.com/@notbrookemonk/video/7455822281110064414?q=urban%20outfitter&t=1767776249851"
   @SwiftUI.State private var productImage: UIKit.UIImage? = nil
   @SwiftUI.State private var showingImagePicker: Bool = false
 
@@ -100,46 +103,64 @@ struct BrandOnboardingView: SwiftUI.View {
   }
 
   private func startAnalysis() {
+    guard let image = self.productImage else { return }
+
     self.currentStep = .analyzing
-    self.statusMessage = "正在处理..."
-    self.analysisProgress = 0.2
+    self.statusMessage = "正在连接服务器..."
+    self.analysisProgress = 0.1
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-      self.statusMessage = "分析中..."
-      self.analysisProgress = 0.5
+    Task {
+      do {
+        self.statusMessage = "正在分析品牌 DNA..."
+        self.analysisProgress = 0.3
 
-      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-        self.statusMessage = "生成提示词..."
+        let apiResult = try await OnboardingService.shared.runOnboarding(
+          webLink: self.webLink,
+          insLink: self.insLink,
+          videoUrl: self.videoUrl,
+          productImage: image
+        )
+
+        self.statusMessage = "生成资产中..."
         self.analysisProgress = 0.8
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-          self.statusMessage = "就绪"
-          self.analysisProgress = 1.0
-          self.currentStep = .intermediate
-          self.mockResult()
-        }
+        // Map API response to local models
+        let web = BrandFlowWebAnalysis(
+          modelImageRef: apiResult.webAnalysis.modelImageRef,
+          productImageRef: apiResult.webAnalysis.productImageRef
+        )
+        let ins = BrandFlowInsAnalysis(finalImageRef: apiResult.insAnalysis.finalImageRef)
+        let video = BrandFlowVideoAnalysis(videoPrompt: apiResult.videoAnalysis.videoPrompt)
+
+        let assets = BrandFlowGeneratedAssets(
+          webStyleImages: apiResult.generatedAssets.webStyleImages.map {
+            BrandFlowAsset(id: $0.id, url: $0.url)
+          },
+          insStyleImages: apiResult.generatedAssets.insStyleImages.map {
+            BrandFlowAsset(id: $0.id, url: $0.url)
+          },
+          productDisplayImages: apiResult.generatedAssets.productDisplayImages.map {
+            BrandFlowAsset(id: $0.id, url: $0.url)
+          }
+        )
+
+        self.result = BrandFlowResult(
+          brandKeywords: apiResult.brandKeywords,
+          webAnalysis: web,
+          insAnalysis: ins,
+          videoAnalysis: video,
+          generatedAssets: assets
+        )
+
+        self.analysisProgress = 1.0
+        self.statusMessage = "完成"
+        self.currentStep = .intermediate
+
+      } catch {
+        self.statusMessage = "错误: \(error.localizedDescription)"
+        print("❌ Onboarding error: \(error)")
       }
     }
-  }
-
-  private func mockResult() {
-    let web = BrandFlowWebAnalysis(modelImageRef: "web_1", productImageRef: "web_2")
-    let ins = BrandFlowInsAnalysis(finalImageRef: "ins_1")
-    let video = BrandFlowVideoAnalysis(videoPrompt: "A model walking.")
-
-    let assets = BrandFlowGeneratedAssets(
-      webStyleImages: [BrandFlowAsset(id: "1", url: ""), BrandFlowAsset(id: "2", url: "")],
-      insStyleImages: [BrandFlowAsset(id: "3", url: ""), BrandFlowAsset(id: "4", url: "")],
-      productDisplayImages: [BrandFlowAsset(id: "5", url: "")]
-    )
-
-    self.result = BrandFlowResult(
-      brandKeywords: "时尚, 前卫",
-      webAnalysis: web,
-      insAnalysis: ins,
-      videoAnalysis: video,
-      generatedAssets: assets
-    )
   }
 }
 
