@@ -36,141 +36,43 @@ export interface OnboardingResult {
 
 /**
  * Onboarding Workflow Orchestrator
- * Simplified version with robust error handling
+ * MINIMAL TEST VERSION - skip heavy processing to diagnose crashes
  */
 export async function runOnboardingWorkflow(input: OnboardingInput): Promise<OnboardingResult> {
     logger.info(`Starting onboarding workflow for user: ${input.userId}`);
+    logger.info(`Product image size: ${input.productImage.data.length} chars`);
 
-    const imageContext: Record<string, string> = {
-        [input.productImage.id]: input.productImage.data
+    // MINIMAL TEST: Just return mock data to verify connection works
+    // TODO: Re-enable full workflow after connection is stable
+
+    const mockWebAsset = {
+        id: 'mock_web_1',
+        url: '' // Empty - will show placeholder in UI
     };
-    const context = { userId: input.userId, conversationId: input.conversationId, imageContext };
 
-    // Default results in case of failures
-    let brandSummary = "时尚品牌";
-    let webModelSelection = "";
-    let insSelection = "";
-    let videoPrompt = "A model walking in stylish clothing.";
+    const mockInsAsset = {
+        id: 'mock_ins_1',
+        url: ''
+    };
 
-    // Step 1: Analyze web link
-    try {
-        logger.info('Step 1: Analyzing web link...', { url: input.webLink });
-        const webScrape = await executeTool('web_scraper', { url: input.webLink }, context);
-
-        logger.info('Web scrape result', {
-            imageCount: webScrape.images?.length || 0,
-            textLength: webScrape.text?.length || 0,
-            title: webScrape.title
-        });
-
-        if (webScrape.images && webScrape.images.length > 0) {
-            webModelSelection = webScrape.images[0]; // Use first image as reference
-            logger.info('Selected web model image', { url: webModelSelection });
-        }
-
-        // Summarize brand
-        if (webScrape.text) {
-            brandSummary = await performVLMTextTask(
-                `Summarize this brand's style in 3-5 keywords (comma separated): ${webScrape.text.substring(0, 2000)}`
-            );
-            logger.info('Brand summary generated', { brandSummary });
-        }
-    } catch (e) {
-        logger.error('Step 1 failed, using defaults', e);
-    }
-
-    // Step 2: Analyze Instagram (skip for now - returns empty)
-    try {
-        logger.info('Step 2: Analyzing Instagram link...');
-        const insScrape = await executeTool('social_analyzer', { url: input.insLink }, context);
-        if (insScrape.images && insScrape.images.length > 0) {
-            insSelection = insScrape.images[0];
-        }
-    } catch (e) {
-        logger.error('Step 2 failed, using defaults', e);
-    }
-
-    // Step 3: Analyze video
-    try {
-        logger.info('Step 3: Analyzing video...');
-        const videoResult = await executeTool('video_to_text', { url: input.videoUrl }, context);
-        videoPrompt = videoResult.prompt || videoPrompt;
-    } catch (e) {
-        logger.error('Step 3 failed, using defaults', e);
-    }
-
-    // Step 4: Generate assets using the product image directly
-    logger.info('Step 4: Generating assets...');
-
-    let webStyleImages: any = { images: [] };
-    let insStyleImages: any = { images: [] };
-    let productDisplayImages: any = { images: [] };
-
-    try {
-        logger.info('Step 4.1: Generating web style images...');
-        // Generate model images using the product image
-        webStyleImages = await executeTool('generate_model_image', {
-            product_image: input.productImage.id,
-            model_style: 'auto',
-            scene_type: 'studio',
-            vibe: 'professional ecommerce, clean white background, high-end fashion',
-            count: 2
-        }, context);
-        logger.info('Web style images generated', {
-            count: webStyleImages.images?.length || 0
-        });
-    } catch (e) {
-        logger.error('Failed to generate web style images', e);
-    }
-
-    try {
-        logger.info('Step 4.2: Generating ins style images...');
-        insStyleImages = await executeTool('generate_model_image', {
-            product_image: input.productImage.id,
-            model_style: 'auto',
-            scene_type: 'street',
-            vibe: 'lifestyle, natural lighting, urban Instagram aesthetic',
-            count: 2
-        }, context);
-        logger.info('Ins style images generated', {
-            count: insStyleImages.images?.length || 0
-        });
-    } catch (e) {
-        logger.error('Failed to generate ins style images', e);
-    }
-
-    try {
-        logger.info('Step 4.3: Generating product display image...');
-        productDisplayImages = await executeTool('generate_model_image', {
-            product_image: input.productImage.id,
-            model_style: 'auto',
-            scene_type: 'studio',
-            vibe: 'product only, no model, minimalist studio, professional lighting',
-            count: 1
-        }, context);
-        logger.info('Product display images generated', {
-            count: productDisplayImages.images?.length || 0
-        });
-    } catch (e) {
-        logger.error('Failed to generate product display images', e);
-    }
+    logger.info('Returning mock data for testing...');
 
     return {
-        brandKeywords: brandSummary,
+        brandKeywords: 'Test: 时尚, 前卫, 高端',
         webAnalysis: {
-            modelImageRef: webModelSelection,
-            productImageRef: webModelSelection,
+            modelImageRef: 'test_ref',
+            productImageRef: 'test_ref',
         },
         insAnalysis: {
-            finalImageRef: insSelection,
+            finalImageRef: 'test_ref',
         },
         videoAnalysis: {
-            videoPrompt: videoPrompt,
+            videoPrompt: 'Test video prompt',
         },
         generatedAssets: {
-            webStyleImages: mapAssets(webStyleImages),
-            insStyleImages: mapAssets(insStyleImages),
-            productDisplayImages: mapAssets(productDisplayImages),
+            webStyleImages: [mockWebAsset, mockWebAsset],
+            insStyleImages: [mockInsAsset, mockInsAsset],
+            productDisplayImages: [mockWebAsset],
         }
     };
 }
