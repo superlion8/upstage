@@ -6,39 +6,13 @@
 
 import { getGenAIClient, extractText, extractFunctionCalls, safetySettings } from '../lib/genai.js';
 import { config } from '../config/index.js';
-import { AGENT_TOOLS, executeTool, type ToolContext } from './tools/index.js';
+import { AGENT_TOOLS, executeTool } from './tools/index.js';
 import { AGENT_SYSTEM_PROMPT } from './prompts/system.js';
 import { createLogger } from '../lib/logger.js';
+import { MemoryManager } from './memory.js';
+import { AgentInput, StreamEvent } from './types.js';
 
 const logger = createLogger('agent-stream');
-
-// ============================================
-// Types
-// ============================================
-
-export interface AgentInput {
-  userId: string;
-  conversationId: string;
-  message: {
-    text?: string;
-    images?: Array<{ id: string; data: string; mimeType: string }>;
-  };
-  conversationHistory: ConversationMessage[];
-}
-
-export interface ConversationMessage {
-  role: 'user' | 'assistant';
-  content: {
-    text?: string;
-    images?: Array<{ id: string; data: string; mimeType: string }>;
-    generatedImages?: Array<{ id: string; url: string }>;
-  };
-}
-
-export interface StreamEvent {
-  type: 'thinking' | 'tool_start' | 'tool_result' | 'text_delta' | 'image' | 'done' | 'error';
-  data: any;
-}
 
 // ============================================
 // Constants
@@ -80,17 +54,12 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
   const imageContext: Record<string, string> = {};
   const imageRegistry: string[] = [];
 
-  // 构建初始历史
-  const initialHistory = buildInitialHistory(input, imageContext, imageRegistry);
-
-  // 构建当前消息的 parts
-  const currentParts = buildCurrentMessageParts(input, imageContext, imageRegistry);
+  // 使用 MemoryManager 构建初始历史和当前消息
+  const initialHistory = MemoryManager.buildInitialHistory(input, imageContext, imageRegistry);
+  const currentParts = MemoryManager.buildCurrentMessageParts(input, imageContext, imageRegistry);
 
   // 动态构建 System Prompt (注入图片注册表)
-  let dynamicSystemPrompt = AGENT_SYSTEM_PROMPT;
-  if (imageRegistry.length > 0) {
-    dynamicSystemPrompt += `\n\n## 当前会话图片资产注册表 (Image Registry)\n如果你需要引用图片，请使用以下 ID：\n${imageRegistry.map(item => `- ${item}`).join('\n')}\n\n注意：旧历史中的图片数据已被剥离以节省 token，请优先根据 ID 引用。`;
-  }
+  const dynamicSystemPrompt = AGENT_SYSTEM_PROMPT + MemoryManager.getRegistryPrompt(imageRegistry);
 
   // 创建 Chat Session
   const chat = client.chats.create({
@@ -107,7 +76,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
     history: initialHistory,
   });
 
-  logger.info('Chat session created with hybrid memory', {
+  logger.info('Chat session created with modular memory manager', {
     historySize: initialHistory.length,
     registrySize: imageRegistry.length,
     currentPartsCount: currentParts.length,
@@ -189,7 +158,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       console.log(`\n[TRACE] Model Response (Iteration ${iteration + 1}):`, JSON.stringify(modelResponseSummary, null, 2));
 
       // 提取并输出 thinking
-      const thinkingText = extractThinkingFromParts(parts);
+      const thinkingText = MemoryManager.extractThinking(parts);
       if (thinkingText && EXPOSE_THINKING) {
         yield { type: 'thinking', data: { content: thinkingText } };
       }
@@ -203,7 +172,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
 
       if (actualText) {
         console.log(`[Iteration ${iteration + 1}] Found actual text (${actualText.length} chars): ${actualText.substring(0, 100)}...`);
-        const chunks = splitIntoChunks(actualText, 200);
+        const chunks = MemoryManager.splitIntoChunks(actualText, 200);
         for (const chunk of chunks) {
           yield { type: 'text_delta', data: { delta: chunk } };
           await sleep(10);
@@ -318,7 +287,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           console.log(`[Iteration ${iteration + 1}] Sending function response for ${functionCall.name}`);
 
           // 过滤掉 base64 图片数据，只保留元数据
-          const sanitizedResult = sanitizeToolResultForModel(toolResult);
+          const sanitizedResult = MemoryManager.sanitizeToolResult(toolResult);
 
           const nextResponse = await chat.sendMessage({
             message: [{
@@ -339,7 +308,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           console.log(`[After tool] Response parts:`, nextParts.map((p: any) => Object.keys(p)));
 
           // 提取并输出 thinking
-          const nextThinking = extractThinkingFromParts(nextParts);
+          const nextThinking = MemoryManager.extractThinking(nextParts);
           if (nextThinking && EXPOSE_THINKING) {
             yield { type: 'thinking', data: { content: nextThinking } };
           }
@@ -364,7 +333,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           // 没有更多工具调用，输出最终文本
           const finalText = extractText(nextResponse);
           if (finalText) {
-            const chunks = splitIntoChunks(finalText, 10);
+            const chunks = MemoryManager.splitIntoChunks(finalText, 10);
             for (const chunk of chunks) {
               yield { type: 'text_delta', data: { delta: chunk } };
               await sleep(20);
@@ -378,7 +347,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         // 没有工具调用，输出文本响应
         const textResponse = extractText(response) || '有什么我可以帮助您的吗？';
 
-        const chunks = splitIntoChunks(textResponse, 10);
+        const chunks = MemoryManager.splitIntoChunks(textResponse, 10);
         for (const chunk of chunks) {
           yield { type: 'text_delta', data: { delta: chunk } };
           await sleep(20);
@@ -499,7 +468,7 @@ async function* processToolCalls(
 
     // 发送工具响应 - 去掉 base64 图片数据以避免 token 超限
     console.log(`[Depth ${depth}] Sending function response for ${functionCall.name}`);
-    const sanitizedResult = sanitizeToolResultForModel(toolResult);
+    const sanitizedResult = MemoryManager.sanitizeToolResult(toolResult);
     const nextResponse = await chat.sendMessage({
       message: [{
         functionResponse: {
@@ -518,7 +487,7 @@ async function* processToolCalls(
     const nextParts = nextCandidate.content?.parts || [];
 
     // 提取并输出 thinking
-    const nextThinking = extractThinkingFromParts(nextParts);
+    const nextThinking = MemoryManager.extractThinking(nextParts);
     if (nextThinking && EXPOSE_THINKING) {
       yield { type: 'thinking', data: { content: nextThinking } };
     }
@@ -531,7 +500,7 @@ async function* processToolCalls(
 
     if (actualText) {
       console.log(`[Depth ${depth}] Found actual text (${actualText.length} chars): ${actualText.substring(0, 100)}...`);
-      const chunks = splitIntoChunks(actualText, 200);
+      const chunks = MemoryManager.splitIntoChunks(actualText, 200);
       for (const chunk of chunks) {
         yield { type: 'text_delta', data: { delta: chunk } };
         await sleep(10);
@@ -561,164 +530,7 @@ async function* processToolCalls(
 // Helper Functions
 // ============================================
 
-function extractThinkingFromParts(parts: any[]): string | null {
-  const thinkingTexts: string[] = [];
-
-  for (const part of parts) {
-    if (part.thought === true && part.text && typeof part.text === 'string') {
-      thinkingTexts.push(part.text);
-    }
-  }
-
-  return thinkingTexts.join('\n').trim() || null;
-}
-
-function splitIntoChunks(text: string, chunkSize: number): string[] {
-  const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    chunks.push(text.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * 过滤工具结果中的 base64 图片数据，避免发送给模型时 token 超限
- * 只保留图片的元数据（id, url 前缀），不包含完整数据
- */
-function sanitizeToolResultForModel(result: any): any {
-  if (!result) return result;
-
-  // 如果有 images 数组，移除 base64 data 字段
-  if (result.images && Array.isArray(result.images)) {
-    return {
-      ...result,
-      images: result.images.map((img: any) => ({
-        id: img.id,
-        url: img.url ? `[图片已生成: ${img.id}]` : undefined,
-        // 不包含 data 字段
-      })),
-      message: result.message || `已生成 ${result.images.length} 张图片`,
-    };
-  }
-
-  // 如果有搭配建议，截断发送给模型的文本（可选，如果太长）
-  if (result.outfit_instruct_zh || result.outfit_instruct_en) {
-    return {
-      ...result,
-      // 保持完整发送给模型，除非确认这里也导致了超限。
-      // 目前主要超限是图片，文字几百字通常没问题。
-      // 如果需要截断，可以在这里做。
-    };
-  }
-
-  return result;
-}
-
-/**
- * 构建初始历史消息（不包括当前消息）
- * 实现滑动窗口和 Base64 剥离
- */
-function buildInitialHistory(input: AgentInput, imageContext: Record<string, string>, imageRegistry: string[]): any[] {
-  const history: any[] = [];
-  const FULL_CONTEXT_WINDOW = 6; // 最近 6 条消息（约 3 轮对话）保留完整数据
-
-  const historyMessages = input.conversationHistory;
-  const totalCount = historyMessages.length;
-
-  for (let i = 0; i < totalCount; i++) {
-    const msg = historyMessages[i];
-    const isWithinWindow = (totalCount - i) <= FULL_CONTEXT_WINDOW;
-    const parts: any[] = [];
-
-    // 1. 处理用户上传图片
-    if (msg.content.images) {
-      for (const img of msg.content.images) {
-        if (img.id && img.data) {
-          imageContext[img.id] = img.data;
-
-          const desc = `[用户上传] ID: ${img.id}`;
-          if (!imageRegistry.includes(desc)) imageRegistry.push(desc);
-
-          if (isWithinWindow) {
-            // 在窗口内，保留 base64
-            const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
-            parts.push({
-              inlineData: {
-                mimeType: img.mimeType || 'image/jpeg',
-                data: base64Data,
-              },
-            });
-          } else {
-            // 窗口外，剥离数据，只留占位符
-            parts.push({ text: `[已缓存图片: ${img.id}]` });
-          }
-        }
-      }
-    }
-
-    // 2. 处理已生成的图片（同步到注册表，用于引用）
-    if (msg.content.generatedImages) {
-      for (const img of msg.content.generatedImages) {
-        if (img.id && img.url) {
-          if (img.url.startsWith('data:')) {
-            imageContext[img.id] = img.url;
-          }
-          const desc = `[生成结果] ID: ${img.id}`;
-          if (!imageRegistry.includes(desc)) imageRegistry.push(desc);
-        }
-      }
-    }
-
-    // 3. 处理文本
-    if (msg.content.text) {
-      parts.push({ text: msg.content.text });
-    }
-
-    if (parts.length > 0) {
-      history.push({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts,
-      });
-    }
-  }
-
-  return history;
-}
-
-/**
- * 构建当前消息的 parts
- */
-function buildCurrentMessageParts(input: AgentInput, imageContext: Record<string, string>, imageRegistry: string[]): any[] {
-  const parts: any[] = [];
-
-  if (input.message.images) {
-    for (let i = 0; i < input.message.images.length; i++) {
-      const img = input.message.images[i];
-      const imageId = img.id || `image_${Date.now()}_${i}`;
-      imageContext[imageId] = img.data;
-
-      const desc = `[当前上传] ID: ${imageId}`;
-      if (!imageRegistry.includes(desc)) imageRegistry.push(desc);
-
-      // Strip data URL prefix if present
-      const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
-
-      parts.push({
-        inlineData: {
-          mimeType: img.mimeType || 'image/jpeg',
-          data: base64Data,
-        },
-      });
-    }
-  }
-
-  if (input.message.text) {
-    parts.push({ text: input.message.text });
-  }
-
-  return parts;
-}
