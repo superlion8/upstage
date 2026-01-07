@@ -135,6 +135,21 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         
         const modelParts = candidate.content?.parts || [];
         
+        // 详细日志：查看 modelParts 中的 thought_signature
+        // 注意：可能是 thoughtSignature 或 thought_signature
+        logger.info('Model parts for tool call:', {
+          partsCount: modelParts.length,
+          partKeys: modelParts.map((p: any) => Object.keys(p)),
+          // 检查两种可能的字段名
+          hasThought: modelParts.some((p: any) => p.thought === true),
+          hasThoughtSignatureCamel: modelParts.some((p: any) => p.thoughtSignature),
+          hasThoughtSignatureSnake: modelParts.some((p: any) => p.thought_signature),
+          hasFunctionCall: modelParts.some((p: any) => p.functionCall),
+        });
+        
+        // 打印完整的 parts 结构（用于调试）
+        logger.debug('Full modelParts:', JSON.stringify(modelParts, null, 2));
+        
         // Execute tool
         const toolContext: ToolContext = {
           userId: input.userId,
@@ -331,13 +346,22 @@ function appendToolResult(
   result: any,
   modelParts?: any[]
 ): AgentContext {
-  // Add model response with tool call
+  logger.info('appendToolResult called', {
+    toolName,
+    hasModelParts: !!modelParts,
+    modelPartsCount: modelParts?.length || 0,
+    contextMessagesCount: context.messages.length,
+  });
+  
+  // Add model response with tool call (preserving thought_signature)
   if (modelParts && modelParts.length > 0) {
+    logger.info('Using original modelParts (with thought_signature)');
     context.messages.push({
       role: 'model',
       parts: modelParts,
     });
   } else {
+    logger.warn('No modelParts, using fallback (may cause thought_signature error)');
     context.messages.push({
       role: 'model',
       parts: [{
