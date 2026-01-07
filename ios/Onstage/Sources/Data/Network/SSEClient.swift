@@ -92,8 +92,8 @@ class SSEClient: NSObject, URLSessionDataDelegate {
         self.onError = onError
         self.buffer = ""
         
-        // Build request
-        guard let url = URL(string: "\(APIClient.shared.baseURL)/api/chat/stream") else {
+        // Build request - baseURL already includes /api
+        guard let url = URL(string: "\(APIClient.shared.baseURL)/chat/stream") else {
             onError(NSError(domain: "SSEClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
             return
         }

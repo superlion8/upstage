@@ -4,7 +4,7 @@ import Foundation
 final class APIClient {
     static let shared = APIClient()
     
-    private let baseURL: String
+    let baseURL: String  // Internal for SSEClient access
     private let session: URLSession
     
     private init() {
