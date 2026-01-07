@@ -23,7 +23,7 @@
     "@fastify/rate-limit": "^9.1.0",
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^4.1.0",
-    "@google/genai": "^0.14.0",
+    "@google/genai": "^1.34.0",
     "@supabase/supabase-js": "^2.45.0",
     "bcryptjs": "^2.4.3",
     "dayjs": "^1.11.12",
