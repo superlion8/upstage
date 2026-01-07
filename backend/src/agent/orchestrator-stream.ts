@@ -187,171 +187,20 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       }
 
       if (functionCalls.length > 0) {
-        // 处理工具调用
-        for (const functionCall of functionCalls) {
-          const displayName = TOOL_DISPLAY_NAMES[functionCall.name] || functionCall.name;
-
-          // ========== TRACE: Tool Call Start ==========
-          logger.info(`[TRACE] Tool Call: ${functionCall.name}`, {
-            tool: functionCall.name,
-            input: functionCall.args,
-          });
-          console.log(`\n========================================`);
-          console.log(`[TRACE] Tool: ${functionCall.name}`);
-          console.log(`[TRACE] Input:`, JSON.stringify(functionCall.args, null, 2));
-          console.log(`========================================`);
-
-          yield {
-            type: 'tool_start',
-            data: {
-              tool: functionCall.name,
-              displayName,
-              arguments: functionCall.args,
-            }
-          };
-
-          // 执行工具
-          const toolContext: ToolContext = {
-            userId: input.userId,
-            conversationId: input.conversationId,
-            imageContext,
-          };
-
-          let toolResult;
-          try {
-            toolResult = await executeTool(functionCall.name, functionCall.args, toolContext);
-
-            // ========== TRACE: Tool Result ==========
-            const resultSummary = {
-              success: toolResult.success !== false,
-              message: toolResult.message,
-              hasImages: !!toolResult.images?.length,
-              imageCount: toolResult.images?.length || 0,
-              // 显示部分文本预览，但不显示完整 base64
-              ...(toolResult.outfit_instruct_zh ? { outfit_instruct_zh: toolResult.outfit_instruct_zh.substring(0, 100) + '...' } : {}),
-              ...(toolResult.outfit_instruct_en ? { outfit_instruct_en: toolResult.outfit_instruct_en.substring(0, 100) + '...' } : {}),
-            };
-            logger.info(`[TRACE] Tool Result: ${functionCall.name}`, resultSummary);
-            console.log(`[TRACE] Output:`, JSON.stringify(resultSummary, null, 2));
-            console.log(`========================================\n`);
-
-            yield {
-              type: 'tool_result',
-              data: {
-                tool: functionCall.name,
-                displayName,
-                arguments: functionCall.args,
-                result: {
-                  success: toolResult.success !== false,
-                  message: toolResult.message,
-                  hasImages: !!toolResult.images?.length,
-                  // 传递搭配建议给前端展示
-                  outfit_instruct_zh: toolResult.outfit_instruct_zh,
-                  outfit_instruct_en: toolResult.outfit_instruct_en,
-                },
-              }
-            };
-
-            // 输出生成的图片
-            if (toolResult.images) {
-              for (const img of toolResult.images) {
-                yield { type: 'image', data: img };
-                // 添加到图片上下文
-                if (img.data) {
-                  imageContext[`generated_${functionCall.name}_${Date.now()}`] = img.data;
-                }
-              }
-            }
-
-          } catch (toolError) {
-            logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
-            toolResult = {
-              success: false,
-              error: toolError instanceof Error ? toolError.message : 'Unknown error'
-            };
-
-            yield {
-              type: 'tool_result',
-              data: {
-                tool: functionCall.name,
-                displayName,
-                result: {
-                  success: false,
-                  message: toolResult.error,
-                },
-              }
-            };
-          }
-
-          // 发送工具响应 - 去掉 base64 图片数据以避免 token 超限
-          console.log(`[Iteration ${iteration + 1}] Sending function response for ${functionCall.name}`);
-
-          // 过滤掉 base64 图片数据，只保留元数据
-          const sanitizedResult = MemoryManager.sanitizeToolResult(toolResult);
-
-          const nextResponse = await chat.sendMessage({
-            message: [{
-              functionResponse: {
-                name: functionCall.name,
-                response: sanitizedResult,
-              },
-            }]
-          });
-
-          const nextCandidate = nextResponse.candidates?.[0];
-          if (!nextCandidate) {
-            yield { type: 'error', data: { message: 'No response after tool execution' } };
-            return;
-          }
-
-          const nextParts = nextCandidate.content?.parts || [];
-          console.log(`[After tool] Response parts:`, nextParts.map((p: any) => Object.keys(p)));
-
-          // 提取并输出 thinking
-          const nextThinking = MemoryManager.extractThinking(nextParts);
-          if (nextThinking && EXPOSE_THINKING) {
-            yield { type: 'thinking', data: { content: nextThinking } };
-          }
-
-          // 检查是否有更多工具调用
-          const nextFunctionCalls = extractFunctionCalls(nextResponse);
-
-          if (nextFunctionCalls.length > 0) {
-            // 还有更多工具调用，递归处理
-            for await (const event of processToolCalls(
-              chat,
-              nextFunctionCalls,
-              input,
-              imageContext,
-              iteration + 1
-            )) {
-              yield event;
-            }
-            return;
-          }
-
-          // 没有更多工具调用，输出最终文本
-          const finalText = extractText(nextResponse);
-          if (finalText) {
-            const chunks = MemoryManager.splitIntoChunks(finalText, 10);
-            for (const chunk of chunks) {
-              yield { type: 'text_delta', data: { delta: chunk } };
-              await sleep(20);
-            }
-          } else {
-            yield { type: 'text_delta', data: { delta: '任务完成！' } };
-          }
-          return;
-        }
+        // 处理工具调用（可能是多工具并行）
+        console.log(`[Iteration ${iteration + 1}] Delegating ${functionCalls.length} tool calls to processToolCalls`);
+        yield* processToolCalls(chat, functionCalls, input, imageContext, 0);
+        return;
       } else {
         // 没有工具调用，输出文本响应
         const textResponse = extractText(response) || '有什么我可以帮助您的吗？';
 
-        const chunks = MemoryManager.splitIntoChunks(textResponse, 10);
+        const chunks = MemoryManager.splitIntoChunks(textResponse, 200);
         for (const chunk of chunks) {
           yield { type: 'text_delta', data: { delta: chunk } };
-          await sleep(20);
+          await sleep(10);
         }
+        yield { type: 'done', data: {} };
         return;
       }
 
@@ -394,10 +243,14 @@ async function* processToolCalls(
   depth: number
 ): AsyncGenerator<StreamEvent> {
   if (depth > MAX_ITERATIONS) {
-    yield { type: 'text_delta', data: { delta: '已达到最大处理深度。' } };
+    logger.warn(`Max recursion depth reached: ${depth}`);
+    yield { type: 'text_delta', data: { delta: '\n\n(已达到最大处理深度)' } };
     return;
   }
 
+  const responseParts: any[] = [];
+
+  // 1. 全部执行并在本地收集结果
   for (const functionCall of functionCalls) {
     const displayName = TOOL_DISPLAY_NAMES[functionCall.name] || functionCall.name;
 
@@ -430,7 +283,6 @@ async function* processToolCalls(
             success: toolResult.success !== false,
             message: toolResult.message,
             hasImages: !!toolResult.images?.length,
-            // 传递搭配建议给前端展示
             outfit_instruct_zh: toolResult.outfit_instruct_zh,
             outfit_instruct_en: toolResult.outfit_instruct_en,
           },
@@ -441,16 +293,15 @@ async function* processToolCalls(
         for (const img of toolResult.images) {
           yield { type: 'image', data: img };
           if (img.data) {
-            imageContext[`generated_${functionCall.name}_${Date.now()}`] = img.data;
+            imageContext[img.id || `gen_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`] = img.data;
           }
         }
       }
-
     } catch (toolError) {
       logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
       toolResult = {
         success: false,
-        error: toolError instanceof Error ? toolError.message : 'Unknown error'
+        message: toolError instanceof Error ? toolError.message : 'Unknown error'
       };
 
       yield {
@@ -460,69 +311,61 @@ async function* processToolCalls(
           displayName,
           result: {
             success: false,
-            message: toolResult.error,
+            message: toolResult.message,
           },
         }
       };
     }
 
-    // 发送工具响应 - 去掉 base64 图片数据以避免 token 超限
-    console.log(`[Depth ${depth}] Sending function response for ${functionCall.name}`);
-    const sanitizedResult = MemoryManager.sanitizeToolResult(toolResult);
-    const nextResponse = await chat.sendMessage({
-      message: [{
-        functionResponse: {
-          name: functionCall.name,
-          response: sanitizedResult,
-        },
-      }]
+    // 收集响应 Part (剥离 base64 以节省 token)
+    responseParts.push({
+      functionResponse: {
+        name: functionCall.name,
+        response: MemoryManager.sanitizeToolResult(toolResult),
+      }
     });
+  }
 
-    const nextCandidate = nextResponse.candidates?.[0];
-    if (!nextCandidate) {
-      yield { type: 'error', data: { message: 'No response after tool execution' } };
-      return;
-    }
+  // 2. 一次性发送所有工具响应（必须配对发送）
+  console.log(`[Depth ${depth}] Sending ${responseParts.length} function responses`);
+  const nextResponse = await chat.sendMessage({ message: responseParts });
 
-    const nextParts = nextCandidate.content?.parts || [];
-
-    // 提取并输出 thinking
-    const nextThinking = MemoryManager.extractThinking(nextParts);
-    if (nextThinking && EXPOSE_THINKING) {
-      yield { type: 'thinking', data: { content: nextThinking } };
-    }
-
-    // 提取并输出普通文本内容
-    const actualText = nextParts
-      .filter((p: any) => p.text && !p.thought)
-      .map((p: any) => p.text)
-      .join('\n');
-
-    if (actualText) {
-      console.log(`[Depth ${depth}] Found actual text (${actualText.length} chars): ${actualText.substring(0, 100)}...`);
-      const chunks = MemoryManager.splitIntoChunks(actualText, 200);
-      for (const chunk of chunks) {
-        yield { type: 'text_delta', data: { delta: chunk } };
-        await sleep(10);
-      }
-    }
-
-    // 检查是否有更多工具调用
-    const nextFunctionCalls = extractFunctionCalls(nextResponse);
-
-    if (nextFunctionCalls.length > 0) {
-      try {
-        yield* processToolCalls(chat, nextFunctionCalls, input, imageContext, depth + 1);
-      } catch (recurseError) {
-        logger.error('Recursive tool call failed', { depth, error: recurseError });
-        yield { type: 'error', data: { message: 'Recursive processing failed', details: String(recurseError) } };
-      }
-      return;
-    }
-
-    // 这一轮没有新的工具调用，递归结束。
-    // 由于上面已经 yield 了 actualText，这里不需要再处理 finalText。
+  const nextCandidate = nextResponse.candidates?.[0];
+  if (!nextCandidate) {
+    yield { type: 'error', data: { message: 'No response after tool execution' } };
     return;
+  }
+
+  const nextParts = nextCandidate.content?.parts || [];
+
+  // 3. 处理后续输出 (Thinking -> Text -> Tools)
+  // 提取 Thinking
+  const nextThinking = MemoryManager.extractThinking(nextParts);
+  if (nextThinking && EXPOSE_THINKING) {
+    yield { type: 'thinking', data: { content: nextThinking } };
+  }
+
+  // 提取并串流文本
+  const actualText = nextParts
+    .filter((p: any) => p.text && !p.thought)
+    .map((p: any) => p.text)
+    .join('\n');
+
+  if (actualText) {
+    const chunks = MemoryManager.splitIntoChunks(actualText, 200);
+    for (const chunk of chunks) {
+      yield { type: 'text_delta', data: { delta: chunk } };
+      await sleep(10);
+    }
+  }
+
+  // 检查是否还有更多工具调用（递归）
+  const nextFunctionCalls = extractFunctionCalls(nextResponse);
+  if (nextFunctionCalls.length > 0) {
+    yield* processToolCalls(chat, nextFunctionCalls, input, imageContext, depth + 1);
+  } else {
+    // 整个工具链条结束
+    yield { type: 'done', data: {} };
   }
 }
 
