@@ -22,7 +22,33 @@ function shouldLog(level: LogLevel): boolean {
 
 function formatMessage(module: string, message: string, data?: any): string {
   const timestamp = new Date().toISOString();
-  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
+  let dataStr = '';
+
+  if (data) {
+    if (data instanceof Error) {
+      dataStr = ` ${JSON.stringify({
+        message: data.message,
+        stack: data.stack,
+        ...data
+      })}`;
+    } else if (typeof data === 'object') {
+      // Handle nested Error objects
+      const sanitizedData = JSON.parse(JSON.stringify(data, (key, value) => {
+        if (value instanceof Error) {
+          return {
+            message: value.message,
+            stack: value.stack,
+            ...value
+          };
+        }
+        return value;
+      }));
+      dataStr = ` ${JSON.stringify(sanitizedData)}`;
+    } else {
+      dataStr = ` ${String(data)}`;
+    }
+  }
+
   return `[${timestamp}] [${module}] ${message}${dataStr}`;
 }
 
