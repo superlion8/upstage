@@ -6,19 +6,6 @@ final class OnboardingService {
   static let shared = OnboardingService()
   private init() {}
 
-  struct OnboardingRequest: Encodable {
-    let webLink: String
-    let insLink: String
-    let videoUrl: String
-    let productImage: ProductImage
-
-    struct ProductImage: Encodable {
-      let id: String
-      let data: String
-      let mimeType: String
-    }
-  }
-
   struct OnboardingResponse: Decodable {
     let success: Bool
     let data: OnboardingData?
@@ -65,49 +52,52 @@ final class OnboardingService {
     productImage: UIImage
   ) async throws -> OnboardingResponse.OnboardingData {
 
-    guard let imageData = productImage.jpegData(compressionQuality: 0.8) else {
+    guard let imageData = productImage.jpegData(compressionQuality: 0.7) else {
       throw NSError(
         domain: "OnboardingService", code: 1,
         userInfo: [NSLocalizedDescriptionKey: "Failed to encode image"])
     }
 
-    let base64String = imageData.base64EncodedString()
-    let imageId = "product_\(UUID().uuidString.prefix(8))"
-
-    let requestBody = OnboardingRequest(
-      webLink: webLink,
-      insLink: insLink,
-      videoUrl: videoUrl,
-      productImage: OnboardingRequest.ProductImage(
-        id: imageId,
-        data: base64String,
-        mimeType: "image/jpeg"
-      )
-    )
-
     let url = URL(string: APIClient.shared.baseURL + "/onboarding")!
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    // Use multipart form data instead of base64 JSON
+    let boundary = UUID().uuidString
+    request.setValue(
+      "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
     if let token = KeychainManager.shared.getAuthToken() {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
 
-    // Use plain JSONEncoder (not api encoder) to preserve camelCase keys
-    let encoder = JSONEncoder()
-    request.httpBody = try encoder.encode(requestBody)
+    var body = Data()
 
-    // Debug: print what we're sending
-    if let bodyStr = String(data: request.httpBody!, encoding: .utf8) {
-      print("📤 Body keys: \(bodyStr.prefix(200))...")
-    }
+    // Add text fields
+    body.append(multipartField(name: "webLink", value: webLink, boundary: boundary))
+    body.append(multipartField(name: "insLink", value: insLink, boundary: boundary))
+    body.append(multipartField(name: "videoUrl", value: videoUrl, boundary: boundary))
+
+    // Add image file
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append(
+      "Content-Disposition: form-data; name=\"productImage\"; filename=\"product.jpg\"\r\n"
+        .data(using: .utf8)!)
+    body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+    body.append(imageData)
+    body.append("\r\n".data(using: .utf8)!)
+
+    // End boundary
+    body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+    request.httpBody = body
 
     print("📤 [POST] \(url.absoluteString)")
+    print("📤 Image size: \(imageData.count / 1024) KB")
 
-    // Use custom session with longer timeout for this long-running operation
+    // Use custom session with longer timeout
     let config = URLSessionConfiguration.default
-    config.timeoutIntervalForRequest = 300  // 5 minutes
+    config.timeoutIntervalForRequest = 300
     config.timeoutIntervalForResource = 300
     let session = URLSession(configuration: config)
 
@@ -137,5 +127,13 @@ final class OnboardingService {
     }
 
     return resultData
+  }
+
+  private func multipartField(name: String, value: String, boundary: String) -> Data {
+    var data = Data()
+    data.append("--\(boundary)\r\n".data(using: .utf8)!)
+    data.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+    data.append("\(value)\r\n".data(using: .utf8)!)
+    return data
   }
 }
