@@ -162,7 +162,18 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       }
 
       const parts = candidate.content?.parts || [];
-      console.log(`[Iteration ${iteration + 1}] Response parts:`, parts.map((p: any) => Object.keys(p)));
+
+      // ========== TRACE: Model Response ==========
+      const modelResponseSummary = {
+        iteration: iteration + 1,
+        partsCount: parts.length,
+        partTypes: parts.map((p: any) => Object.keys(p)),
+        hasThinking: parts.some((p: any) => p.thought),
+        hasFunctionCall: parts.some((p: any) => p.functionCall),
+        hasText: parts.some((p: any) => p.text && !p.thought),
+      };
+      logger.info(`[TRACE] Model Response:`, modelResponseSummary);
+      console.log(`\n[TRACE] Model Response (Iteration ${iteration + 1}):`, JSON.stringify(modelResponseSummary, null, 2));
 
       // 提取并输出 thinking
       const thinkingText = extractThinkingFromParts(parts);
@@ -174,9 +185,23 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       const functionCalls = extractFunctionCalls(response);
 
       if (functionCalls.length > 0) {
+        console.log(`[TRACE] Function calls detected: ${functionCalls.map((fc: any) => fc.name).join(', ')}`);
+      }
+
+      if (functionCalls.length > 0) {
         // 处理工具调用
         for (const functionCall of functionCalls) {
           const displayName = TOOL_DISPLAY_NAMES[functionCall.name] || functionCall.name;
+
+          // ========== TRACE: Tool Call Start ==========
+          logger.info(`[TRACE] Tool Call: ${functionCall.name}`, {
+            tool: functionCall.name,
+            input: functionCall.args,
+          });
+          console.log(`\n========================================`);
+          console.log(`[TRACE] Tool: ${functionCall.name}`);
+          console.log(`[TRACE] Input:`, JSON.stringify(functionCall.args, null, 2));
+          console.log(`========================================`);
 
           yield {
             type: 'tool_start',
@@ -197,6 +222,19 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           let toolResult;
           try {
             toolResult = await executeTool(functionCall.name, functionCall.args, toolContext);
+
+            // ========== TRACE: Tool Result ==========
+            const resultSummary = {
+              success: toolResult.success !== false,
+              message: toolResult.message,
+              hasImages: !!toolResult.images?.length,
+              imageCount: toolResult.images?.length || 0,
+              // 不打印完整的 base64 数据
+              ...(toolResult.stylistOutput ? { stylistOutput: '(省略详细内容)' } : {}),
+            };
+            logger.info(`[TRACE] Tool Result: ${functionCall.name}`, resultSummary);
+            console.log(`[TRACE] Output:`, JSON.stringify(resultSummary, null, 2));
+            console.log(`========================================\n`);
 
             yield {
               type: 'tool_result',
