@@ -52,7 +52,9 @@ final class OnboardingService {
     productImage: UIImage
   ) async throws -> OnboardingResponse.OnboardingData {
 
-    guard let imageData = productImage.jpegData(compressionQuality: 0.7) else {
+    guard let resizedImage = resizeImage(productImage, targetSize: CGSize(width: 800, height: 800)),
+      let imageData = resizedImage.jpegData(compressionQuality: 0.6)
+    else {
       throw NSError(
         domain: "OnboardingService", code: 1,
         userInfo: [NSLocalizedDescriptionKey: "Failed to encode image"])
@@ -135,5 +137,26 @@ final class OnboardingService {
     data.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
     data.append("\(value)\r\n".data(using: .utf8)!)
     return data
+  }
+
+  private func resizeImage(_ image: UIImage, targetSize: CGSize) -> UIImage? {
+    let size = image.size
+
+    let widthRatio = targetSize.width / size.width
+    let heightRatio = targetSize.height / size.height
+
+    // Use the smaller ratio to ensure the image fits within targetSize while maintaining aspect ratio
+    let ratio = min(widthRatio, heightRatio)
+    if ratio >= 1.0 { return image }  // No need to upscale
+
+    let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
+    let rect = CGRect(origin: .zero, size: newSize)
+
+    UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+    image.draw(in: rect)
+    let newImage = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+
+    return newImage
   }
 }
