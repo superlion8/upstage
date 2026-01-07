@@ -19,6 +19,7 @@ import { setupAuth } from './middleware/auth.js';
 // Routes
 import { authRoutes } from './api/auth.js';
 import { chatRoutes } from './api/chat.js';
+import { chatStreamRoutes } from './api/chat-stream.js';
 import { assetsRoutes } from './api/assets.js';
 import { shootRoomRoutes } from './api/shoot-room.js';
 
@@ -105,6 +106,7 @@ async function buildServer() {
   // API routes
   await fastify.register(authRoutes, { prefix: '/api/auth' });
   await fastify.register(chatRoutes, { prefix: '/api/chat' });
+  await fastify.register(chatStreamRoutes, { prefix: '/api/chat' }); // Streaming endpoint
   await fastify.register(assetsRoutes, { prefix: '/api/assets' });
   await fastify.register(shootRoomRoutes, { prefix: '/api/shoot-room' });
   

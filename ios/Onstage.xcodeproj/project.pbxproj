@@ -38,6 +38,7 @@
 		A1000018 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000018 /* AuthView.swift */; };
 		A1000019 /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000019 /* ImagePicker.swift */; };
 		A100001A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B100001A /* Assets.xcassets */; };
+		A1000020 /* SSEClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* SSEClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -86,6 +87,7 @@
 		B1000018 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		B1000019 /* ImagePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePicker.swift; sourceTree = "<group>"; };
 		B100001A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1000020 /* SSEClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -199,6 +201,7 @@
 				B1000006 /* APIClient.swift */,
 				B1000007 /* APIEndpoint.swift */,
 				B1000008 /* APIError.swift */,
+				B1000020 /* SSEClient.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -454,6 +457,7 @@
 				A1000017 /* ProfileViewModel.swift in Sources */,
 				A1000018 /* AuthView.swift in Sources */,
 				A1000019 /* ImagePicker.swift in Sources */,
+				A1000020 /* SSEClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -38,9 +38,18 @@ final class ChatViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Streaming State
+    
+    @Published var streamingThinking: String = ""
+    @Published var streamingText: String = ""
+    @Published var streamingSteps: [AgentStep] = []
+    @Published var streamingImages: [GeneratedImage] = []
+    
     // MARK: - Private Properties
     
     private let chatRepository = ChatRepository.shared
+    private let sseClient = SSEClient()
+    private var useStreaming = true  // Use streaming by default
     
     // MARK: - Init
     
@@ -150,6 +159,171 @@ final class ChatViewModel: ObservableObject {
             return
         }
         
+        // Use streaming or regular API
+        if useStreaming {
+            await sendMessageStream(text: text.isEmpty ? nil : text, images: images.isEmpty ? nil : images)
+        } else {
+            await sendMessageRegular(text: text.isEmpty ? nil : text, images: images.isEmpty ? nil : images)
+        }
+    }
+    
+    // MARK: - Streaming Send
+    
+    private func sendMessageStream(text: String?, images: [MessageImage]?) async {
+        // Reset streaming state
+        streamingThinking = ""
+        streamingText = ""
+        streamingSteps = []
+        streamingImages = []
+        
+        // Create streaming assistant message
+        let streamingMessageId = UUID()
+        let streamingMessage = Message(
+            id: streamingMessageId,
+            role: .assistant,
+            content: MessageContent(text: nil),
+            createdAt: Date(),
+            status: .generating
+        )
+        messages.append(streamingMessage)
+        isLoading = true
+        
+        // Get token
+        guard let token = KeychainManager.shared.getToken() else {
+            updateStreamingMessage(id: streamingMessageId, text: "认证失败，请重新登录", status: .failed)
+            isLoading = false
+            return
+        }
+        
+        // Start SSE stream
+        sseClient.stream(
+            text: text,
+            images: images,
+            conversationId: currentConversationId,
+            token: token,
+            onEvent: { [weak self] event in
+                self?.handleSSEEvent(event, messageId: streamingMessageId)
+            },
+            onComplete: { [weak self] in
+                self?.finalizeStreamingMessage(id: streamingMessageId)
+            },
+            onError: { [weak self] error in
+                self?.updateStreamingMessage(
+                    id: streamingMessageId, 
+                    text: "发送失败: \(error.localizedDescription)", 
+                    status: .failed
+                )
+                self?.isLoading = false
+            }
+        )
+    }
+    
+    private func handleSSEEvent(_ event: SSEEvent, messageId: UUID) {
+        switch event.type {
+        case .conversation:
+            if let idString = event.conversationId, let id = UUID(uuidString: idString) {
+                currentConversationId = id
+                Task { await loadConversations() }
+            }
+            
+        case .thinking:
+            if let content = event.thinkingContent {
+                streamingThinking += content
+                updateStreamingMessageContent(id: messageId)
+            }
+            
+        case .toolStart:
+            let step = AgentStep(
+                id: UUID(),
+                type: .toolCall,
+                tool: event.toolName,
+                arguments: event.arguments?.mapValues { AnyCodable($0) },
+                result: nil,
+                timestamp: Date()
+            )
+            streamingSteps.append(step)
+            updateStreamingMessageContent(id: messageId)
+            
+        case .toolResult:
+            // Update the last step with result
+            if var lastStep = streamingSteps.last {
+                let result = event.toolResult
+                lastStep = AgentStep(
+                    id: lastStep.id,
+                    type: .toolCall,
+                    tool: lastStep.tool,
+                    arguments: lastStep.arguments,
+                    result: StepResult(
+                        success: result?["success"] as? Bool ?? true,
+                        message: result?["message"] as? String,
+                        hasImages: result?["hasImages"] as? Bool
+                    ),
+                    timestamp: lastStep.timestamp
+                )
+                if !streamingSteps.isEmpty {
+                    streamingSteps[streamingSteps.count - 1] = lastStep
+                }
+            }
+            updateStreamingMessageContent(id: messageId)
+            
+        case .textDelta:
+            if let delta = event.textDelta {
+                streamingText += delta
+                updateStreamingMessageContent(id: messageId)
+            }
+            
+        case .image:
+            if let url = event.imageUrl {
+                let image = GeneratedImage(
+                    id: event.data["id"] as? String ?? UUID().uuidString,
+                    url: url,
+                    thumbnailUrl: event.data["thumbnailUrl"] as? String
+                )
+                streamingImages.append(image)
+                updateStreamingMessageContent(id: messageId)
+            }
+            
+        case .done:
+            finalizeStreamingMessage(id: messageId)
+            
+        case .error:
+            updateStreamingMessage(
+                id: messageId, 
+                text: event.errorMessage ?? "Unknown error", 
+                status: .failed
+            )
+            isLoading = false
+        }
+    }
+    
+    private func updateStreamingMessageContent(id: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        
+        messages[index].content = MessageContent(
+            text: streamingText.isEmpty ? nil : streamingText,
+            images: nil,
+            generatedImages: streamingImages.isEmpty ? nil : streamingImages,
+            guiRequest: nil,
+            agentSteps: streamingSteps.isEmpty ? nil : streamingSteps,
+            thinking: streamingThinking.isEmpty ? nil : streamingThinking
+        )
+    }
+    
+    private func updateStreamingMessage(id: UUID, text: String, status: Message.MessageStatus) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[index].content.text = text
+        messages[index].status = status
+    }
+    
+    private func finalizeStreamingMessage(id: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[index].status = .sent
+        isLoading = false
+    }
+    
+    // MARK: - Regular Send (non-streaming fallback)
+    
+    private func sendMessageRegular(text: String?, images: [MessageImage]?) async {
         // Create loading assistant message
         let loadingMessage = Message(
             id: UUID(),
@@ -165,8 +339,8 @@ final class ChatViewModel: ObservableObject {
         do {
             let response = try await chatRepository.sendMessage(
                 conversationId: currentConversationId,
-                text: text.isEmpty ? nil : text,
-                images: images.isEmpty ? nil : images
+                text: text,
+                images: images
             )
             
             // Update conversation ID if new
