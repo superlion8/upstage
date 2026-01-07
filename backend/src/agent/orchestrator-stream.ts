@@ -181,6 +181,21 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         yield { type: 'thinking', data: { content: thinkingText } };
       }
 
+      // 提取并输出普通文本内容 (VLM 搭配建议等)
+      // 注意：过滤掉作为 thought 的 text 部分
+      const actualText = parts
+        .filter((p: any) => p.text && !p.thought)
+        .map((p: any) => p.text)
+        .join('\n');
+
+      if (actualText) {
+        const chunks = splitIntoChunks(actualText, 50);
+        for (const chunk of chunks) {
+          yield { type: 'text_delta', data: { delta: chunk } };
+          await sleep(20);
+        }
+      }
+
       // 检查是否有工具调用
       const functionCalls = extractFunctionCalls(response);
 
@@ -229,8 +244,9 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
               message: toolResult.message,
               hasImages: !!toolResult.images?.length,
               imageCount: toolResult.images?.length || 0,
-              // 不打印完整的 base64 数据
-              ...(toolResult.stylistOutput ? { stylistOutput: '(省略详细内容)' } : {}),
+              // 显示部分文本预览，但不显示完整 base64
+              ...(toolResult.outfit_instruct_zh ? { outfit_instruct_zh: toolResult.outfit_instruct_zh.substring(0, 100) + '...' } : {}),
+              ...(toolResult.outfit_instruct_en ? { outfit_instruct_en: toolResult.outfit_instruct_en.substring(0, 100) + '...' } : {}),
             };
             logger.info(`[TRACE] Tool Result: ${functionCall.name}`, resultSummary);
             console.log(`[TRACE] Output:`, JSON.stringify(resultSummary, null, 2));
@@ -246,6 +262,9 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
                   success: toolResult.success !== false,
                   message: toolResult.message,
                   hasImages: !!toolResult.images?.length,
+                  // 传递搭配建议给前端展示
+                  outfit_instruct_zh: toolResult.outfit_instruct_zh,
+                  outfit_instruct_en: toolResult.outfit_instruct_en,
                 },
               }
             };
@@ -377,6 +396,7 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
   }
 
   yield { type: 'text_delta', data: { delta: '已完成多轮处理，如需进一步调整请告诉我。' } };
+  yield { type: 'done', data: {} };
 }
 
 // ============================================
@@ -427,6 +447,9 @@ async function* processToolCalls(
             success: toolResult.success !== false,
             message: toolResult.message,
             hasImages: !!toolResult.images?.length,
+            // 传递搭配建议给前端展示
+            outfit_instruct_zh: toolResult.outfit_instruct_zh,
+            outfit_instruct_en: toolResult.outfit_instruct_en,
           },
         }
       };
@@ -480,10 +503,24 @@ async function* processToolCalls(
 
     const nextParts = nextCandidate.content?.parts || [];
 
-    // 提取 thinking
+    // 提取并输出 thinking
     const nextThinking = extractThinkingFromParts(nextParts);
     if (nextThinking && EXPOSE_THINKING) {
       yield { type: 'thinking', data: { content: nextThinking } };
+    }
+
+    // 提取并输出普通文本内容
+    const actualText = nextParts
+      .filter((p: any) => p.text && !p.thought)
+      .map((p: any) => p.text)
+      .join('\n');
+
+    if (actualText) {
+      const chunks = splitIntoChunks(actualText, 50);
+      for (const chunk of chunks) {
+        yield { type: 'text_delta', data: { delta: chunk } };
+        await sleep(20);
+      }
     }
 
     // 检查是否有更多工具调用
@@ -566,16 +603,13 @@ function sanitizeToolResultForModel(result: any): any {
     };
   }
 
-  // 如果有 stylistOutput，简化其中的大字段
-  if (result.stylistOutput) {
+  // 如果有搭配建议，截断发送给模型的文本（可选，如果太长）
+  if (result.outfit_instruct_zh || result.outfit_instruct_en) {
     return {
       ...result,
-      stylistOutput: {
-        ...result.stylistOutput,
-        // 保留关键信息，截断过长的文本
-        outfitInstructEn: result.stylistOutput.outfitInstructEn?.substring(0, 500),
-        outfitInstructZh: result.stylistOutput.outfitInstructZh?.substring(0, 500),
-      },
+      // 保持完整发送给模型，除非确认这里也导致了超限。
+      // 目前主要超限是图片，文字几百字通常没问题。
+      // 如果需要截断，可以在这里做。
     };
   }
 
