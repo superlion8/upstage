@@ -4,51 +4,53 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-struct OnboardingWebAnalysis: Codable {
+// MARK: - Models
+struct BrandFlowResult: Codable {
+  let brandKeywords: String
+  let webAnalysis: BrandFlowWebAnalysis
+  let insAnalysis: BrandFlowInsAnalysis
+  let videoAnalysis: BrandFlowVideoAnalysis
+  let generatedAssets: BrandFlowGeneratedAssets
+}
+
+struct BrandFlowWebAnalysis: Codable {
   let modelImageRef: String
   let productImageRef: String
 }
 
-struct OnboardingInsAnalysis: Codable {
+struct BrandFlowInsAnalysis: Codable {
   let finalImageRef: String
 }
 
-struct OnboardingVideoAnalysis: Codable {
+struct BrandFlowVideoAnalysis: Codable {
   let videoPrompt: String
 }
 
-struct OnboardingGeneratedAssets: Codable {
-  let webStyleImages: [OnboardingAsset]
-  let insStyleImages: [OnboardingAsset]
-  let productDisplayImages: [OnboardingAsset]
+struct BrandFlowGeneratedAssets: Codable {
+  let webStyleImages: [BrandFlowAsset]
+  let insStyleImages: [BrandFlowAsset]
+  let productDisplayImages: [BrandFlowAsset]
 }
 
-struct OnboardingAsset: Codable, Identifiable {
+struct BrandFlowAsset: Codable, Identifiable {
   let id: String
   let url: String
 }
 
-struct OnboardingResult: Codable {
-  let brandKeywords: String
-  let webAnalysis: OnboardingWebAnalysis
-  let insAnalysis: OnboardingInsAnalysis
-  let videoAnalysis: OnboardingVideoAnalysis
-  let generatedAssets: OnboardingGeneratedAssets
-}
-
+// MARK: - View
 struct BrandOnboardingView: View {
   @State private var webLink: String = ""
   @State private var insLink: String = ""
   @State private var videoUrl: String = ""
   @State private var productImage: UIImage? = nil
-  @State private var showingImagePicker = false
+  @State private var showingImagePicker: Bool = false
 
-  @State private var isAnalyzing = false
+  @State private var isAnalyzing: Bool = false
   @State private var analysisProgress: Double = 0.0
   @State private var statusMessage: String = ""
 
   @State private var currentStep: OnboardingStep = .input
-  @State private var result: OnboardingResult? = nil
+  @State private var result: BrandFlowResult? = nil
 
   enum OnboardingStep {
     case input
@@ -110,7 +112,7 @@ struct BrandOnboardingView: View {
         }
       }
 
-      Button(action: startAnalysis) {
+      Button(action: { self.startAnalysis() }) {
         Text("开始品牌分析")
           .frame(maxWidth: .infinity)
           .padding()
@@ -134,7 +136,7 @@ struct BrandOnboardingView: View {
       Text(statusMessage)
         .font(.headline)
 
-      Text("正在使用 Gemini-3-Flash 分析品牌 DNA...")
+      Text("正在分析品牌 DNA...")
         .font(.subheadline)
         .foregroundColor(.secondary)
 
@@ -159,7 +161,7 @@ struct BrandOnboardingView: View {
         }
 
         VStack(alignment: .leading, spacing: 10) {
-          Text("反退短视频提示词：").bold()
+          Text("反推短视频提示词：").bold()
           Text(result?.videoAnalysis.videoPrompt ?? "正在生成...")
             .italic()
             .padding()
@@ -169,7 +171,7 @@ struct BrandOnboardingView: View {
 
         Spacer()
 
-        Button(action: { currentStep = .results }) {
+        Button(action: { self.currentStep = .results }) {
           Text("进入资产生成预览")
             .frame(maxWidth: .infinity)
             .padding()
@@ -187,16 +189,16 @@ struct BrandOnboardingView: View {
     List {
       if let assets = result?.generatedAssets {
         Section(header: Text("官网风格图 (2张)")) {
-          OnboardingAssetGrid(assets: assets.webStyleImages)
+          BrandFlowAssetGrid(assets: assets.webStyleImages)
         }
 
         Section(header: Text("INS 风格图 (2张)")) {
-          OnboardingAssetGrid(assets: assets.insStyleImages)
+          BrandFlowAssetGrid(assets: assets.insStyleImages)
         }
 
         if !assets.productDisplayImages.isEmpty {
           Section(header: Text("商品展示图")) {
-            OnboardingAssetGrid(assets: assets.productDisplayImages)
+            BrandFlowAssetGrid(assets: assets.productDisplayImages)
           }
         }
       }
@@ -210,41 +212,41 @@ struct BrandOnboardingView: View {
 
   private func startAnalysis() {
     currentStep = .analyzing
-    statusMessage = "正在抓取网页资产..."
+    statusMessage = "正在处理..."
 
     withAnimation { analysisProgress = 0.2 }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-      statusMessage = "正在分析 INS 视觉风格..."
+      statusMessage = "分析中..."
       withAnimation { analysisProgress = 0.5 }
 
       DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-        statusMessage = "正在反推视频提示词..."
+        statusMessage = "生成提示词..."
         withAnimation { analysisProgress = 0.8 }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-          statusMessage = "准备就绪"
+          statusMessage = "就绪"
           withAnimation { analysisProgress = 1.0 }
           currentStep = .intermediate
-          mockResult()
+          self.mockResult()
         }
       }
     }
   }
 
   private func mockResult() {
-    let web = OnboardingWebAnalysis(modelImageRef: "web_1", productImageRef: "web_2")
-    let ins = OnboardingInsAnalysis(finalImageRef: "ins_1")
-    let video = OnboardingVideoAnalysis(videoPrompt: "A model walking on the street.")
+    let web = BrandFlowWebAnalysis(modelImageRef: "web_1", productImageRef: "web_2")
+    let ins = BrandFlowInsAnalysis(finalImageRef: "ins_1")
+    let video = BrandFlowVideoAnalysis(videoPrompt: "A model walking.")
 
-    let assets = OnboardingGeneratedAssets(
-      webStyleImages: [OnboardingAsset(id: "1", url: ""), OnboardingAsset(id: "2", url: "")],
-      insStyleImages: [OnboardingAsset(id: "3", url: ""), OnboardingAsset(id: "4", url: "")],
-      productDisplayImages: [OnboardingAsset(id: "5", url: "")]
+    let assets = BrandFlowGeneratedAssets(
+      webStyleImages: [BrandFlowAsset(id: "1", url: ""), BrandFlowAsset(id: "2", url: "")],
+      insStyleImages: [BrandFlowAsset(id: "3", url: ""), BrandFlowAsset(id: "4", url: "")],
+      productDisplayImages: [BrandFlowAsset(id: "5", url: "")]
     )
 
-    self.result = OnboardingResult(
-      brandKeywords: "时尚, 前卫, 自由, 复古 Y2K",
+    self.result = BrandFlowResult(
+      brandKeywords: "时尚, 前卫",
       webAnalysis: web,
       insAnalysis: ins,
       videoAnalysis: video,
@@ -253,23 +255,26 @@ struct BrandOnboardingView: View {
   }
 }
 
-struct OnboardingAssetGrid: View {
-  let assets: [OnboardingAsset]
+// MARK: - Components
+struct BrandFlowAssetGrid: View {
+  let assets: [BrandFlowAsset]
   var body: some View {
     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
       ForEach(assets) { asset in
-        if let image = decodeBase64(asset.url) {
-          Image(uiImage: image)
-            .resizable()
-            .aspectRatio(9.0 / 16.0, contentMode: .fill)
-            .cornerRadius(8)
-            .clipped()
-        } else {
-          Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .aspectRatio(9.0 / 16.0, contentMode: .fill)
-            .overlay(Text("AI 生成图").font(.caption))
-            .cornerRadius(8)
+        Group {
+          if let image = self.decodeBase64(asset.url) {
+            Image(uiImage: image)
+              .resizable()
+              .aspectRatio(9.0 / 16.0, contentMode: .fill)
+              .cornerRadius(8)
+              .clipped()
+          } else {
+            Rectangle()
+              .fill(Color.secondary.opacity(0.2))
+              .aspectRatio(9.0 / 16.0, contentMode: .fill)
+              .overlay(Text("AI").font(.caption))
+              .cornerRadius(8)
+          }
         }
       }
     }
