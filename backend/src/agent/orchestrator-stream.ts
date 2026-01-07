@@ -88,13 +88,56 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
     try {
       const isFirstIteration = iteration === 0;
       
-      // 打印发送的 contents 结构（用于调试）
-      logger.info('Sending contents to LLM', {
+      // 打印发送的 contents 结构（用于调试 thought_signature 问题）
+      const fullContents = [
+        { role: 'user', parts: [{ text: AGENT_SYSTEM_PROMPT }] },
+        { role: 'model', parts: [{ text: '我理解了，我是 Onstage 的 AI 助手。' }] },
+        ...context.messages,
+      ];
+      
+      logger.info('=== FULL REQUEST CONTENTS ===', {
         iteration: iteration + 1,
-        contentsCount: 2 + context.messages.length,
-        contextMessagesCount: context.messages.length,
-        contextMessageRoles: context.messages.map((m: any) => m.role),
+        totalContentsCount: fullContents.length,
       });
+      
+      // 详细打印每个 content block
+      fullContents.forEach((content, idx) => {
+        const partsInfo = content.parts.map((part: any, pIdx: number) => {
+          const keys = Object.keys(part);
+          return {
+            partIndex: pIdx,
+            keys,
+            hasThought: part.thought === true,
+            // 检查 thought_signature（可能是 camelCase 或 snake_case）
+            hasThoughtSignature: !!(part.thoughtSignature || part.thought_signature),
+            thoughtSignaturePreview: part.thoughtSignature ? 
+              part.thoughtSignature.substring(0, 50) + '...' : 
+              (part.thought_signature ? part.thought_signature.substring(0, 50) + '...' : null),
+            hasFunctionCall: !!part.functionCall,
+            functionCallName: part.functionCall?.name,
+            hasFunctionResponse: !!part.functionResponse,
+            functionResponseName: part.functionResponse?.name,
+            hasText: !!part.text,
+            textPreview: part.text ? part.text.substring(0, 50) + '...' : null,
+          };
+        });
+        
+        logger.info(`Content block ${idx}`, {
+          role: content.role,
+          partsCount: content.parts.length,
+          partsInfo,
+        });
+      });
+      
+      // 如果是第二次迭代，打印完整的 JSON（用于对比）
+      if (iteration > 0) {
+        logger.info('Context messages JSON (iteration > 0):', {
+          messagesJson: JSON.stringify(context.messages.map((m: any) => ({
+            role: m.role,
+            partsKeys: m.parts.map((p: any) => Object.keys(p)),
+          })), null, 2),
+        });
+      }
       
       // Call LLM - 始终启用 thinking
       const response = await client.models.generateContent({
@@ -146,19 +189,55 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         const modelParts = candidate.content?.parts || [];
         
         // 详细日志：查看 modelParts 中的 thought_signature
-        // 注意：可能是 thoughtSignature 或 thought_signature
-        logger.info('Model parts for tool call:', {
-          partsCount: modelParts.length,
-          partKeys: modelParts.map((p: any) => Object.keys(p)),
-          // 检查两种可能的字段名
-          hasThought: modelParts.some((p: any) => p.thought === true),
-          hasThoughtSignatureCamel: modelParts.some((p: any) => p.thoughtSignature),
-          hasThoughtSignatureSnake: modelParts.some((p: any) => p.thought_signature),
-          hasFunctionCall: modelParts.some((p: any) => p.functionCall),
+        logger.info('=== MODEL RESPONSE PARTS ===');
+        modelParts.forEach((part: any, idx: number) => {
+          const partInfo: Record<string, any> = {
+            partIndex: idx,
+            keys: Object.keys(part),
+          };
+          
+          if (part.thought === true) {
+            partInfo.thought = true;
+            partInfo.textPreview = part.text ? part.text.substring(0, 100) + '...' : null;
+          }
+          
+          if (part.functionCall) {
+            partInfo.functionCall = {
+              name: part.functionCall.name,
+              hasArgs: !!part.functionCall.args,
+            };
+          }
+          
+          // 关键：检查 thought_signature
+          if (part.thoughtSignature) {
+            partInfo.thoughtSignature = part.thoughtSignature.substring(0, 80) + '...';
+          }
+          if (part.thought_signature) {
+            partInfo.thought_signature = part.thought_signature.substring(0, 80) + '...';
+          }
+          
+          // 检查是否有其他未知字段
+          const knownKeys = ['thought', 'text', 'functionCall', 'thoughtSignature', 'thought_signature', 'inlineData'];
+          const unknownKeys = Object.keys(part).filter(k => !knownKeys.includes(k));
+          if (unknownKeys.length > 0) {
+            partInfo.unknownKeys = unknownKeys;
+            partInfo.unknownValues = unknownKeys.reduce((acc, k) => {
+              acc[k] = typeof part[k] === 'string' ? part[k].substring(0, 50) + '...' : typeof part[k];
+              return acc;
+            }, {} as Record<string, any>);
+          }
+          
+          logger.info(`Model part ${idx}:`, partInfo);
         });
         
-        // 打印完整的 parts 结构（用于调试）
-        logger.debug('Full modelParts:', JSON.stringify(modelParts, null, 2));
+        // 打印完整的 parts JSON 用于调试
+        logger.info('Full modelParts JSON:', JSON.stringify(modelParts, (key, value) => {
+          // 截断长字符串
+          if (typeof value === 'string' && value.length > 200) {
+            return value.substring(0, 200) + '...[truncated]';
+          }
+          return value;
+        }, 2));
         
         // Execute tool
         const toolContext: ToolContext = {
