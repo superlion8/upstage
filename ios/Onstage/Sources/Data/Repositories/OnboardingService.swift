@@ -94,7 +94,14 @@ final class OnboardingService {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
 
-    request.httpBody = try JSONEncoder.api.encode(requestBody)
+    // Use plain JSONEncoder (not api encoder) to preserve camelCase keys
+    let encoder = JSONEncoder()
+    request.httpBody = try encoder.encode(requestBody)
+
+    // Debug: print what we're sending
+    if let bodyStr = String(data: request.httpBody!, encoding: .utf8) {
+      print("📤 Body keys: \(bodyStr.prefix(200))...")
+    }
 
     print("📤 [POST] \(url.absoluteString)")
 
