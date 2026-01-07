@@ -1,6 +1,7 @@
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct BrandOnboardingView: View {
   @State private var webLink: String = ""
@@ -250,13 +251,13 @@ struct AssetGrid: View {
         if let image = decodeBase64(asset.url) {
           Image(uiImage: image)
             .resizable()
-            .aspectRatio(9 / 16, contentMode: .fill)
+            .aspectRatio(9.0 / 16.0, contentMode: .fill)
             .cornerRadius(8)
             .clipped()
         } else {
           Rectangle()
             .fill(Color.secondary.opacity(0.2))
-            .aspectRatio(9 / 16, contentMode: .fill)
+            .aspectRatio(9.0 / 16.0, contentMode: .fill)
             .overlay(Text("AI 生成图").font(.caption))
             .cornerRadius(8)
         }
@@ -268,7 +269,7 @@ struct AssetGrid: View {
   private func decodeBase64(_ url: String) -> UIImage? {
     guard url.hasPrefix("data:image"),
       let base64String = url.components(separatedBy: ",").last,
-      let data = Data(base64: base64String)
+      let data = Data(base64Encoded: base64String, options: .ignoreUnknownCharacters)
     else {
       return nil
     }
