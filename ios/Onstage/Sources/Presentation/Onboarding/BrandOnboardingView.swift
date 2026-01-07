@@ -60,15 +60,17 @@ struct BrandOnboardingView: View {
   var body: some View {
     NavigationView {
       VStack {
-        switch currentStep {
-        case .input:
-          inputForm
-        case .analyzing:
-          analysisView
-        case .intermediate:
-          intermediateView
-        case .results:
-          resultsView
+        Group {
+          switch currentStep {
+          case .input:
+            inputForm
+          case .analyzing:
+            analysisView
+          case .intermediate:
+            intermediateView
+          case .results:
+            resultsView
+          }
         }
       }
       .navigationTitle("品牌引导流程")
@@ -255,7 +257,7 @@ struct OnboardingAssetGrid: View {
   let assets: [OnboardingAsset]
   var body: some View {
     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-      ForEach(assets, id: \.id) { asset in
+      ForEach(assets) { asset in
         if let image = decodeBase64(asset.url) {
           Image(uiImage: image)
             .resizable()
