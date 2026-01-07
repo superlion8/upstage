@@ -83,9 +83,12 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
   
   // Agent Loop
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    logger.debug(`Agent iteration ${iteration + 1}/${MAX_ITERATIONS}`);
+    logger.info(`Agent iteration ${iteration + 1}/${MAX_ITERATIONS}`);
     
     try {
+      // 只在第一轮启用 thinking，后续轮次禁用以避免 thought_signature 问题
+      const isFirstIteration = iteration === 0;
+      
       // Call LLM
       const response = await client.models.generateContent({
         model: THINKING_MODEL,
@@ -97,10 +100,13 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         config: {
           tools: [{ functionDeclarations: AGENT_TOOLS as any }],
           safetySettings,
-          thinkingConfig: {
-            thinkingBudget: 8192,
-            includeThoughts: true,
-          },
+          // 只在第一轮启用 thinking，避免多轮调用时的 thought_signature 问题
+          ...(isFirstIteration ? {
+            thinkingConfig: {
+              thinkingBudget: 8192,
+              includeThoughts: true,
+            },
+          } : {}),
         },
       });
       
@@ -183,7 +189,11 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           }
           
           // Add result to context
-          context = appendToolResult(context, functionCall.name, functionCall.args, toolResult, modelParts);
+          // 第一轮后，只保留 functionCall，去掉 thought 相关字段
+          const partsForContext = isFirstIteration 
+            ? modelParts 
+            : modelParts.filter((p: any) => p.functionCall);
+          context = appendToolResult(context, functionCall.name, functionCall.args, toolResult, partsForContext);
           
           // If tool marked as complete with images, end loop
           if (toolResult.images && toolResult.shouldContinue === false) {
@@ -211,12 +221,15 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           };
           
           // Add error to context and continue
+          const errorPartsForContext = isFirstIteration 
+            ? modelParts 
+            : modelParts.filter((p: any) => p.functionCall);
           context = appendToolResult(
             context, 
             functionCall.name, 
             functionCall.args, 
             { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' },
-            modelParts
+            errorPartsForContext
           );
           continue;
         }
