@@ -86,10 +86,17 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
     logger.info(`Agent iteration ${iteration + 1}/${MAX_ITERATIONS}`);
     
     try {
-      // 只在第一轮启用 thinking，后续轮次禁用以避免 thought_signature 问题
       const isFirstIteration = iteration === 0;
       
-      // Call LLM
+      // 打印发送的 contents 结构（用于调试）
+      logger.info('Sending contents to LLM', {
+        iteration: iteration + 1,
+        contentsCount: 2 + context.messages.length,
+        contextMessagesCount: context.messages.length,
+        contextMessageRoles: context.messages.map((m: any) => m.role),
+      });
+      
+      // Call LLM - 始终启用 thinking
       const response = await client.models.generateContent({
         model: THINKING_MODEL,
         contents: [
@@ -100,13 +107,10 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         config: {
           tools: [{ functionDeclarations: AGENT_TOOLS as any }],
           safetySettings,
-          // 只在第一轮启用 thinking，避免多轮调用时的 thought_signature 问题
-          ...(isFirstIteration ? {
-            thinkingConfig: {
-              thinkingBudget: 8192,
-              includeThoughts: true,
-            },
-          } : {}),
+          thinkingConfig: {
+            thinkingBudget: 8192,
+            includeThoughts: true,
+          },
         },
       });
       
@@ -188,12 +192,12 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
             }
           }
           
-          // Add result to context
-          // 第一轮后，只保留 functionCall，去掉 thought 相关字段
-          const partsForContext = isFirstIteration 
-            ? modelParts 
-            : modelParts.filter((p: any) => p.functionCall);
-          context = appendToolResult(context, functionCall.name, functionCall.args, toolResult, partsForContext);
+          // Add result to context - 保留完整的 modelParts（包括 thought_signature）
+          logger.info('Adding tool result to context', {
+            modelPartsCount: modelParts.length,
+            modelPartsKeys: modelParts.map((p: any) => Object.keys(p)),
+          });
+          context = appendToolResult(context, functionCall.name, functionCall.args, toolResult, modelParts);
           
           // If tool marked as complete with images, end loop
           if (toolResult.images && toolResult.shouldContinue === false) {
@@ -221,15 +225,12 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           };
           
           // Add error to context and continue
-          const errorPartsForContext = isFirstIteration 
-            ? modelParts 
-            : modelParts.filter((p: any) => p.functionCall);
           context = appendToolResult(
             context, 
             functionCall.name, 
             functionCall.args, 
             { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' },
-            errorPartsForContext
+            modelParts
           );
           continue;
         }
