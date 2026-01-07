@@ -250,8 +250,25 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       return;
       
     } catch (error) {
-      logger.error('Agent iteration error', { iteration, error });
-      yield { type: 'error', data: { message: error instanceof Error ? error.message : 'Unknown error' } };
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
+      logger.error('Agent iteration error', { 
+        iteration, 
+        errorMessage,
+        errorStack,
+        errorType: error?.constructor?.name,
+      });
+      
+      // 发送详细错误信息到前端
+      yield { 
+        type: 'error', 
+        data: { 
+          message: errorMessage,
+          details: errorStack,
+          iteration: iteration + 1,
+        } 
+      };
       return;
     }
   }
