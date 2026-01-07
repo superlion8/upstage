@@ -1,35 +1,39 @@
+import Foundation
 import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-struct OnboardingResult: Codable {
-  let brandKeywords: String
-  let webAnalysis: WebAnalysis
-  let insAnalysis: InsAnalysis
-  let videoAnalysis: VideoAnalysis
-  let generatedAssets: GeneratedAssets
+struct OnboardingWebAnalysis: Codable {
+  let modelImageRef: String
+  let productImageRef: String
+}
 
-  struct WebAnalysis: Codable {
-    let modelImageRef: String
-    let productImageRef: String
-  }
-  struct InsAnalysis: Codable {
-    let finalImageRef: String
-  }
-  struct VideoAnalysis: Codable {
-    let videoPrompt: String
-  }
-  struct GeneratedAssets: Codable {
-    let webStyleImages: [OnboardingAsset]
-    let insStyleImages: [OnboardingAsset]
-    let productDisplayImages: [OnboardingAsset]
-  }
+struct OnboardingInsAnalysis: Codable {
+  let finalImageRef: String
+}
+
+struct OnboardingVideoAnalysis: Codable {
+  let videoPrompt: String
+}
+
+struct OnboardingGeneratedAssets: Codable {
+  let webStyleImages: [OnboardingAsset]
+  let insStyleImages: [OnboardingAsset]
+  let productDisplayImages: [OnboardingAsset]
 }
 
 struct OnboardingAsset: Codable, Identifiable {
   let id: String
   let url: String
+}
+
+struct OnboardingResult: Codable {
+  let brandKeywords: String
+  let webAnalysis: OnboardingWebAnalysis
+  let insAnalysis: OnboardingInsAnalysis
+  let videoAnalysis: OnboardingVideoAnalysis
+  let generatedAssets: OnboardingGeneratedAssets
 }
 
 struct BrandOnboardingView: View {
@@ -181,16 +185,16 @@ struct BrandOnboardingView: View {
     List {
       if let assets = result?.generatedAssets {
         Section(header: Text("官网风格图 (2张)")) {
-          AssetGrid(assets: assets.webStyleImages)
+          OnboardingAssetGrid(assets: assets.webStyleImages)
         }
 
         Section(header: Text("INS 风格图 (2张)")) {
-          AssetGrid(assets: assets.insStyleImages)
+          OnboardingAssetGrid(assets: assets.insStyleImages)
         }
 
         if !assets.productDisplayImages.isEmpty {
           Section(header: Text("商品展示图")) {
-            AssetGrid(assets: assets.productDisplayImages)
+            OnboardingAssetGrid(assets: assets.productDisplayImages)
           }
         }
       }
@@ -206,7 +210,6 @@ struct BrandOnboardingView: View {
     currentStep = .analyzing
     statusMessage = "正在抓取网页资产..."
 
-    // 模拟进度
     withAnimation { analysisProgress = 0.2 }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -221,7 +224,6 @@ struct BrandOnboardingView: View {
           statusMessage = "准备就绪"
           withAnimation { analysisProgress = 1.0 }
           currentStep = .intermediate
-          // 此处通常会发起 API 请求并获取 result
           mockResult()
         }
       }
@@ -229,26 +231,31 @@ struct BrandOnboardingView: View {
   }
 
   private func mockResult() {
-    // Mock data matching the PRD
+    let web = OnboardingWebAnalysis(modelImageRef: "web_1", productImageRef: "web_2")
+    let ins = OnboardingInsAnalysis(finalImageRef: "ins_1")
+    let video = OnboardingVideoAnalysis(videoPrompt: "A model walking on the street.")
+
+    let assets = OnboardingGeneratedAssets(
+      webStyleImages: [OnboardingAsset(id: "1", url: ""), OnboardingAsset(id: "2", url: "")],
+      insStyleImages: [OnboardingAsset(id: "3", url: ""), OnboardingAsset(id: "4", url: "")],
+      productDisplayImages: [OnboardingAsset(id: "5", url: "")]
+    )
+
     self.result = OnboardingResult(
       brandKeywords: "时尚, 前卫, 自由, 复古 Y2K",
-      webAnalysis: .init(modelImageRef: "web_1", productImageRef: "web_2"),
-      insAnalysis: .init(finalImageRef: "ins_1"),
-      videoAnalysis: .init(videoPrompt: "A model walking on the street with vintage film grain."),
-      generatedAssets: .init(
-        webStyleImages: [.init(id: "1", url: ""), .init(id: "2", url: "")],
-        insStyleImages: [.init(id: "3", url: ""), .init(id: "4", url: "")],
-        productDisplayImages: [.init(id: "5", url: "")]
-      )
+      webAnalysis: web,
+      insAnalysis: ins,
+      videoAnalysis: video,
+      generatedAssets: assets
     )
   }
 }
 
-struct AssetGrid: View {
+struct OnboardingAssetGrid: View {
   let assets: [OnboardingAsset]
   var body: some View {
     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-      ForEach(assets) { asset in
+      ForEach(assets, id: \.id) { asset in
         if let image = decodeBase64(asset.url) {
           Image(uiImage: image)
             .resizable()
