@@ -127,6 +127,11 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         config: {
           tools: [{ functionDeclarations: AGENT_TOOLS as any }],
           safetySettings,
+          // 启用 thinking 输出
+          thinkingConfig: {
+            thinkingBudget: 8192, // 允许足够的思考 token
+            includeThoughts: true, // 包含思考内容在输出中
+          },
         },
       });
       
@@ -137,8 +142,21 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
         throw new Error('No response from agent');
       }
       
+      // 调试：打印完整的 candidate 结构（部分）
+      logger.debug('Candidate structure', {
+        hasContent: !!candidate.content,
+        partsCount: candidate.content?.parts?.length || 0,
+        partTypes: candidate.content?.parts?.map((p: any) => Object.keys(p)) || [],
+        candidateKeys: Object.keys(candidate),
+      });
+      
       // Extract thinking process (if model supports it)
       const iterationThinking = extractThinking(response);
+      logger.info('Thinking extraction result', { 
+        hasThinking: !!iterationThinking, 
+        thinkingLength: iterationThinking?.length || 0,
+        thinkingPreview: iterationThinking?.slice(0, 100) || 'none',
+      });
       if (iterationThinking) {
         thinking += iterationThinking + '\n';
       }

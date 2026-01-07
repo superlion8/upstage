@@ -95,18 +95,40 @@ export function extractImages(response: any): Array<{ mimeType: string; data: st
 
 /**
  * Extract thinking/reasoning from a Gemini response (if available)
+ * Handles multiple possible field names used by different Gemini model versions
  */
 export function extractThinking(response: any): string | null {
   try {
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) return null;
     
+    // 尝试多种可能的字段名
     const thinkingParts = candidate.content.parts
-      .filter((part: any) => part.thought)
-      .map((part: any) => part.thought);
+      .map((part: any) => {
+        // Gemini 3 可能使用 "thought" 或 "thinking" 或其他字段
+        return part.thought || part.thinking || part.reasoning || null;
+      })
+      .filter(Boolean);
+    
+    // 如果没有找到，尝试 candidate 级别
+    if (thinkingParts.length === 0) {
+      const candidateThinking = candidate.thinking || candidate.thought || candidate.reasoning;
+      if (candidateThinking) {
+        return candidateThinking;
+      }
+    }
+    
+    // 如果还是没有，检查 groundingMetadata 或其他元数据
+    if (thinkingParts.length === 0) {
+      const metadata = candidate.groundingMetadata || candidate.metadata;
+      if (metadata?.thinking) {
+        return metadata.thinking;
+      }
+    }
     
     return thinkingParts.join('\n').trim() || null;
-  } catch {
+  } catch (err) {
+    console.error('Error extracting thinking:', err);
     return null;
   }
 }
