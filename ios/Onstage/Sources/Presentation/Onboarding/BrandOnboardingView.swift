@@ -69,7 +69,7 @@ struct BrandOnboardingView: View {
       .navigationBarTitleDisplayMode(.inline)
     }
     .sheet(isPresented: $showingImagePicker) {
-      ImagePicker(image: $productImage)
+      OnboardingImagePicker(image: $productImage)
     }
   }
 
@@ -276,7 +276,7 @@ struct AssetGrid: View {
   }
 }
 
-struct ImagePicker: UIViewControllerRepresentable {
+struct OnboardingImagePicker: UIViewControllerRepresentable {
   @Binding var image: UIImage?
 
   func makeUIViewController(context: Context) -> PHPickerViewController {
@@ -294,9 +294,9 @@ struct ImagePicker: UIViewControllerRepresentable {
   }
 
   class Coordinator: NSObject, PHPickerViewControllerDelegate {
-    let parent: ImagePicker
+    let parent: OnboardingImagePicker
 
-    init(_ parent: ImagePicker) {
+    init(_ parent: OnboardingImagePicker) {
       self.parent = parent
     }
 
