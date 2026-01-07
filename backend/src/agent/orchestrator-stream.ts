@@ -95,49 +95,51 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         ...context.messages,
       ];
       
-      logger.info('=== FULL REQUEST CONTENTS ===', {
-        iteration: iteration + 1,
-        totalContentsCount: fullContents.length,
-      });
+      // 使用 console.log 确保立即输出
+      console.log('\n========== ITERATION', iteration + 1, '==========');
+      console.log('Total contents count:', fullContents.length);
       
       // 详细打印每个 content block
       fullContents.forEach((content, idx) => {
-        const partsInfo = content.parts.map((part: any, pIdx: number) => {
+        console.log(`\n--- Content block ${idx} (role: ${content.role}) ---`);
+        content.parts.forEach((part: any, pIdx: number) => {
           const keys = Object.keys(part);
-          return {
-            partIndex: pIdx,
-            keys,
-            hasThought: part.thought === true,
-            // 检查 thought_signature（可能是 camelCase 或 snake_case）
-            hasThoughtSignature: !!(part.thoughtSignature || part.thought_signature),
-            thoughtSignaturePreview: part.thoughtSignature ? 
-              part.thoughtSignature.substring(0, 50) + '...' : 
-              (part.thought_signature ? part.thought_signature.substring(0, 50) + '...' : null),
-            hasFunctionCall: !!part.functionCall,
-            functionCallName: part.functionCall?.name,
-            hasFunctionResponse: !!part.functionResponse,
-            functionResponseName: part.functionResponse?.name,
-            hasText: !!part.text,
-            textPreview: part.text ? part.text.substring(0, 50) + '...' : null,
-          };
-        });
-        
-        logger.info(`Content block ${idx}`, {
-          role: content.role,
-          partsCount: content.parts.length,
-          partsInfo,
+          console.log(`  Part ${pIdx}: keys = [${keys.join(', ')}]`);
+          
+          if (part.thought === true) {
+            console.log(`    thought: true, text preview: ${part.text?.substring(0, 100)}...`);
+          }
+          if (part.functionCall) {
+            console.log(`    functionCall: ${part.functionCall.name}`);
+          }
+          if (part.functionResponse) {
+            console.log(`    functionResponse: ${part.functionResponse.name}`);
+          }
+          // 关键：检查 thought_signature
+          if (part.thoughtSignature) {
+            console.log(`    thoughtSignature (camelCase): ${part.thoughtSignature.substring(0, 80)}...`);
+          }
+          if (part.thought_signature) {
+            console.log(`    thought_signature (snake_case): ${part.thought_signature.substring(0, 80)}...`);
+          }
+          // 检查其他未知字段
+          const knownKeys = ['thought', 'text', 'functionCall', 'thoughtSignature', 'thought_signature', 'inlineData', 'functionResponse'];
+          const unknownKeys = keys.filter(k => !knownKeys.includes(k));
+          if (unknownKeys.length > 0) {
+            console.log(`    UNKNOWN KEYS: [${unknownKeys.join(', ')}]`);
+            unknownKeys.forEach(k => {
+              const val = part[k];
+              if (typeof val === 'string') {
+                console.log(`      ${k}: "${val.substring(0, 100)}..."`);
+              } else {
+                console.log(`      ${k}: ${JSON.stringify(val).substring(0, 100)}`);
+              }
+            });
+          }
         });
       });
       
-      // 如果是第二次迭代，打印完整的 JSON（用于对比）
-      if (iteration > 0) {
-        logger.info('Context messages JSON (iteration > 0):', {
-          messagesJson: JSON.stringify(context.messages.map((m: any) => ({
-            role: m.role,
-            partsKeys: m.parts.map((p: any) => Object.keys(p)),
-          })), null, 2),
-        });
-      }
+      console.log('\n========== END ITERATION', iteration + 1, 'CONTENTS ==========\n');
       
       // Call LLM - 始终启用 thinking
       const response = await client.models.generateContent({
@@ -189,55 +191,57 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         const modelParts = candidate.content?.parts || [];
         
         // 详细日志：查看 modelParts 中的 thought_signature
-        logger.info('=== MODEL RESPONSE PARTS ===');
+        console.log('\n========== MODEL RESPONSE PARTS ==========');
+        console.log('Total parts:', modelParts.length);
         modelParts.forEach((part: any, idx: number) => {
-          const partInfo: Record<string, any> = {
-            partIndex: idx,
-            keys: Object.keys(part),
-          };
+          const keys = Object.keys(part);
+          console.log(`\n--- Model Part ${idx}: keys = [${keys.join(', ')}] ---`);
           
           if (part.thought === true) {
-            partInfo.thought = true;
-            partInfo.textPreview = part.text ? part.text.substring(0, 100) + '...' : null;
+            console.log(`  thought: true`);
+            console.log(`  text preview: ${part.text?.substring(0, 150)}...`);
           }
           
           if (part.functionCall) {
-            partInfo.functionCall = {
-              name: part.functionCall.name,
-              hasArgs: !!part.functionCall.args,
-            };
+            console.log(`  functionCall.name: ${part.functionCall.name}`);
           }
           
-          // 关键：检查 thought_signature
+          // 关键：检查 thought_signature（可能在 functionCall 同一个 part 里）
           if (part.thoughtSignature) {
-            partInfo.thoughtSignature = part.thoughtSignature.substring(0, 80) + '...';
+            console.log(`  ✅ thoughtSignature (camelCase) FOUND: ${part.thoughtSignature.substring(0, 100)}...`);
           }
           if (part.thought_signature) {
-            partInfo.thought_signature = part.thought_signature.substring(0, 80) + '...';
+            console.log(`  ✅ thought_signature (snake_case) FOUND: ${part.thought_signature.substring(0, 100)}...`);
           }
           
-          // 检查是否有其他未知字段
+          // 检查 functionCall 内部是否有 thought_signature
+          if (part.functionCall) {
+            const fcKeys = Object.keys(part.functionCall);
+            console.log(`  functionCall keys: [${fcKeys.join(', ')}]`);
+            if (part.functionCall.thoughtSignature) {
+              console.log(`  ✅ functionCall.thoughtSignature FOUND`);
+            }
+            if (part.functionCall.thought_signature) {
+              console.log(`  ✅ functionCall.thought_signature FOUND`);
+            }
+          }
+          
+          // 检查其他未知字段
           const knownKeys = ['thought', 'text', 'functionCall', 'thoughtSignature', 'thought_signature', 'inlineData'];
-          const unknownKeys = Object.keys(part).filter(k => !knownKeys.includes(k));
+          const unknownKeys = keys.filter(k => !knownKeys.includes(k));
           if (unknownKeys.length > 0) {
-            partInfo.unknownKeys = unknownKeys;
-            partInfo.unknownValues = unknownKeys.reduce((acc, k) => {
-              acc[k] = typeof part[k] === 'string' ? part[k].substring(0, 50) + '...' : typeof part[k];
-              return acc;
-            }, {} as Record<string, any>);
+            console.log(`  ⚠️ UNKNOWN KEYS: [${unknownKeys.join(', ')}]`);
+            unknownKeys.forEach(k => {
+              const val = part[k];
+              if (typeof val === 'string') {
+                console.log(`    ${k}: "${val.substring(0, 150)}..."`);
+              } else {
+                console.log(`    ${k}: ${JSON.stringify(val).substring(0, 150)}`);
+              }
+            });
           }
-          
-          logger.info(`Model part ${idx}:`, partInfo);
         });
-        
-        // 打印完整的 parts JSON 用于调试
-        logger.info('Full modelParts JSON:', JSON.stringify(modelParts, (key, value) => {
-          // 截断长字符串
-          if (typeof value === 'string' && value.length > 200) {
-            return value.substring(0, 200) + '...[truncated]';
-          }
-          return value;
-        }, 2));
+        console.log('\n========== END MODEL RESPONSE PARTS ==========\n');
         
         // Execute tool
         const toolContext: ToolContext = {
