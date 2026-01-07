@@ -54,11 +54,18 @@ export async function runOnboardingWorkflow(input: OnboardingInput): Promise<Onb
 
     // Step 1: Analyze web link
     try {
-        logger.info('Step 1: Analyzing web link...');
+        logger.info('Step 1: Analyzing web link...', { url: input.webLink });
         const webScrape = await executeTool('web_scraper', { url: input.webLink }, context);
+
+        logger.info('Web scrape result', {
+            imageCount: webScrape.images?.length || 0,
+            textLength: webScrape.text?.length || 0,
+            title: webScrape.title
+        });
 
         if (webScrape.images && webScrape.images.length > 0) {
             webModelSelection = webScrape.images[0]; // Use first image as reference
+            logger.info('Selected web model image', { url: webModelSelection });
         }
 
         // Summarize brand
@@ -66,6 +73,7 @@ export async function runOnboardingWorkflow(input: OnboardingInput): Promise<Onb
             brandSummary = await performVLMTextTask(
                 `Summarize this brand's style in 3-5 keywords (comma separated): ${webScrape.text.substring(0, 2000)}`
             );
+            logger.info('Brand summary generated', { brandSummary });
         }
     } catch (e) {
         logger.error('Step 1 failed, using defaults', e);
