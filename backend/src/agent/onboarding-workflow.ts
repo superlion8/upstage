@@ -143,7 +143,6 @@ async function performVLMSelection(imageUrls: string[], instruction: string, tag
 
     try {
         const client = getGenAIClient();
-        const model = (client as any).getGenerativeModel({ model: "gemini-1.5-flash-preview-0514" });
 
         // 我们只取前10张图片进行分析，避免过长
         const imagesToAnalyze = imageUrls.slice(0, 10);
@@ -153,8 +152,11 @@ async function performVLMSelection(imageUrls: string[], instruction: string, tag
         Images:
         ${imagesToAnalyze.join('\n')}`;
 
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const result = await client.models.generateContent({
+            model: "gemini-2.0-flash",
+            contents: prompt
+        });
+        const text = result.text?.trim() || '';
 
         // 提取匹配的 URL
         const match = imagesToAnalyze.find(url => text.includes(url));
@@ -171,9 +173,11 @@ async function performVLMSelection(imageUrls: string[], instruction: string, tag
  */
 async function performVLMTextTask(prompt: string): Promise<string> {
     const client = getGenAIClient();
-    const model = (client as any).getGenerativeModel({ model: "gemini-1.5-flash-preview-0514" });
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    const result = await client.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: prompt
+    });
+    return result.text || '';
 }
 
 /**
