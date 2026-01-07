@@ -3,6 +3,35 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+struct OnboardingResult: Codable {
+  let brandKeywords: String
+  let webAnalysis: WebAnalysis
+  let insAnalysis: InsAnalysis
+  let videoAnalysis: VideoAnalysis
+  let generatedAssets: GeneratedAssets
+
+  struct WebAnalysis: Codable {
+    let modelImageRef: String
+    let productImageRef: String
+  }
+  struct InsAnalysis: Codable {
+    let finalImageRef: String
+  }
+  struct VideoAnalysis: Codable {
+    let videoPrompt: String
+  }
+  struct GeneratedAssets: Codable {
+    let webStyleImages: [OnboardingAsset]
+    let insStyleImages: [OnboardingAsset]
+    let productDisplayImages: [OnboardingAsset]
+  }
+}
+
+struct OnboardingAsset: Codable, Identifiable {
+  let id: String
+  let url: String
+}
+
 struct BrandOnboardingView: View {
   @State private var webLink: String = ""
   @State private var insLink: String = ""
@@ -22,34 +51,6 @@ struct BrandOnboardingView: View {
     case analyzing
     case intermediate
     case results
-  }
-
-  struct OnboardingResult: Codable {
-    let brandKeywords: String
-    let webAnalysis: WebAnalysis
-    let insAnalysis: InsAnalysis
-    let videoAnalysis: VideoAnalysis
-    let generatedAssets: GeneratedAssets
-
-    struct WebAnalysis: Codable {
-      let modelImageRef: String
-      let productImageRef: String
-    }
-    struct InsAnalysis: Codable {
-      let finalImageRef: String
-    }
-    struct VideoAnalysis: Codable {
-      let videoPrompt: String
-    }
-    struct GeneratedAssets: Codable {
-      let webStyleImages: [Asset]
-      let insStyleImages: [Asset]
-      let productDisplayImages: [Asset]
-    }
-    struct Asset: Codable, Identifiable {
-      let id: String
-      let url: String
-    }
   }
 
   var body: some View {
@@ -244,7 +245,7 @@ struct BrandOnboardingView: View {
 }
 
 struct AssetGrid: View {
-  let assets: [BrandOnboardingView.OnboardingResult.Asset]
+  let assets: [OnboardingAsset]
   var body: some View {
     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
       ForEach(assets) { asset in
