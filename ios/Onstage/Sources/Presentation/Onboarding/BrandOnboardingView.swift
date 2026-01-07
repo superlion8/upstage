@@ -5,12 +5,9 @@ import UIKit
 import UniformTypeIdentifiers
 
 // MARK: - Models
-struct BrandFlowResult: Codable {
-  let brandKeywords: String
-  let webAnalysis: BrandFlowWebAnalysis
-  let insAnalysis: BrandFlowInsAnalysis
-  let videoAnalysis: BrandFlowVideoAnalysis
-  let generatedAssets: BrandFlowGeneratedAssets
+struct BrandFlowAsset: Codable, Identifiable {
+  let id: String
+  let url: String
 }
 
 struct BrandFlowWebAnalysis: Codable {
@@ -32,25 +29,28 @@ struct BrandFlowGeneratedAssets: Codable {
   let productDisplayImages: [BrandFlowAsset]
 }
 
-struct BrandFlowAsset: Codable, Identifiable {
-  let id: String
-  let url: String
+struct BrandFlowResult: Codable {
+  let brandKeywords: String
+  let webAnalysis: BrandFlowWebAnalysis
+  let insAnalysis: BrandFlowInsAnalysis
+  let videoAnalysis: BrandFlowVideoAnalysis
+  let generatedAssets: BrandFlowGeneratedAssets
 }
 
-// MARK: - View
-struct BrandOnboardingView: View {
-  @State private var webLink: String = ""
-  @State private var insLink: String = ""
-  @State private var videoUrl: String = ""
-  @State private var productImage: UIImage? = nil
-  @State private var showingImagePicker: Bool = false
+// MARK: - Main View
+struct BrandOnboardingView: SwiftUI.View {
+  @SwiftUI.State private var webLink: String = ""
+  @SwiftUI.State private var insLink: String = ""
+  @SwiftUI.State private var videoUrl: String = ""
+  @SwiftUI.State private var productImage: UIKit.UIImage? = nil
+  @SwiftUI.State private var showingImagePicker: Bool = false
 
-  @State private var isAnalyzing: Bool = false
-  @State private var analysisProgress: Double = 0.0
-  @State private var statusMessage: String = ""
+  @SwiftUI.State private var isAnalyzing: Bool = false
+  @SwiftUI.State private var analysisProgress: Double = 0.0
+  @SwiftUI.State private var statusMessage: String = ""
 
-  @State private var currentStep: OnboardingStep = .input
-  @State private var result: BrandFlowResult? = nil
+  @SwiftUI.State private var currentStep: OnboardingStep = .input
+  @SwiftUI.State private var result: BrandFlowResult? = nil
 
   enum OnboardingStep {
     case input
@@ -59,123 +59,123 @@ struct BrandOnboardingView: View {
     case results
   }
 
-  var body: some View {
-    NavigationView {
-      VStack {
-        Group {
-          switch currentStep {
+  var body: some SwiftUI.View {
+    SwiftUI.NavigationView {
+      SwiftUI.VStack {
+        SwiftUI.Group {
+          switch self.currentStep {
           case .input:
-            inputForm
+            self.inputForm
           case .analyzing:
-            analysisView
+            self.analysisView
           case .intermediate:
-            intermediateView
+            self.intermediateView
           case .results:
-            resultsView
+            self.resultsView
           }
         }
       }
       .navigationTitle("品牌引导流程")
       .navigationBarTitleDisplayMode(.inline)
     }
-    .sheet(isPresented: $showingImagePicker) {
-      OnboardingImagePicker(image: $productImage)
+    .sheet(isPresented: self.$showingImagePicker) {
+      OnboardingImagePicker(image: self.$productImage)
     }
   }
 
   // MARK: - Step 1: Input Form
-  private var inputForm: some View {
-    Form {
-      Section(header: Text("品牌资产链接")) {
-        TextField("官网商品详情页链接", text: $webLink)
+  private var inputForm: some SwiftUI.View {
+    SwiftUI.Form {
+      SwiftUI.Section(header: SwiftUI.Text("品牌资产链接")) {
+        SwiftUI.TextField("官网商品详情页链接", text: self.$webLink)
           .autocapitalization(.none)
-        TextField("Instagram 内容链接", text: $insLink)
+        SwiftUI.TextField("Instagram 内容链接", text: self.$insLink)
           .autocapitalization(.none)
-        TextField("UGC 讲解视频链接", text: $videoUrl)
+        SwiftUI.TextField("UGC 讲解视频链接", text: self.$videoUrl)
           .autocapitalization(.none)
       }
 
-      Section(header: Text("商品图")) {
-        Button(action: { showingImagePicker = true }) {
-          if let image = productImage {
-            Image(uiImage: image)
+      SwiftUI.Section(header: SwiftUI.Text("商品图")) {
+        SwiftUI.Button(action: { self.showingImagePicker = true }) {
+          if let image = self.productImage {
+            SwiftUI.Image(uiImage: image)
               .resizable()
               .scaledToFit()
               .frame(height: 200)
           } else {
-            HStack {
-              Image(systemName: "photo.badge.plus")
-              Text("点击上传需要模特拍摄的商品图")
+            SwiftUI.HStack {
+              SwiftUI.Image(systemName: "photo.badge.plus")
+              SwiftUI.Text("点击上传需要模特拍摄的商品图")
             }
             .foregroundColor(.accentColor)
           }
         }
       }
 
-      Button(action: { self.startAnalysis() }) {
-        Text("开始品牌分析")
+      SwiftUI.Button(action: { self.startAnalysis() }) {
+        SwiftUI.Text("开始品牌分析")
           .frame(maxWidth: .infinity)
           .padding()
-          .background(canStart ? Color.accentColor : Color.gray)
+          .background(self.canStart ? SwiftUI.Color.accentColor : SwiftUI.Color.gray)
           .foregroundColor(.white)
           .cornerRadius(10)
       }
-      .disabled(!canStart)
-      .listRowBackground(Color.clear)
+      .disabled(!self.canStart)
+      .listRowBackground(SwiftUI.Color.clear)
     }
   }
 
   // MARK: - Step 2: Analysis View
-  private var analysisView: some View {
-    VStack(spacing: 30) {
-      Spacer()
-      ProgressView(value: analysisProgress, total: 1.0)
-        .progressViewStyle(LinearProgressViewStyle())
+  private var analysisView: some SwiftUI.View {
+    SwiftUI.VStack(spacing: 30) {
+      SwiftUI.Spacer()
+      SwiftUI.ProgressView(value: self.analysisProgress, total: 1.0)
+        .progressViewStyle(SwiftUI.LinearProgressViewStyle())
         .padding()
 
-      Text(statusMessage)
+      SwiftUI.Text(self.statusMessage)
         .font(.headline)
 
-      Text("正在分析品牌 DNA...")
+      SwiftUI.Text("正在分析品牌 DNA...")
         .font(.subheadline)
         .foregroundColor(.secondary)
 
-      Spacer()
+      SwiftUI.Spacer()
     }
     .padding()
   }
 
   // MARK: - Step 3: Intermediate View
-  private var intermediateView: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        Text("分析完成！")
+  private var intermediateView: some SwiftUI.View {
+    SwiftUI.ScrollView {
+      SwiftUI.VStack(alignment: .leading, spacing: 20) {
+        SwiftUI.Text("分析完成！")
           .font(.title2).bold()
 
-        VStack(alignment: .leading, spacing: 10) {
-          Text("品牌风格关键词：").bold()
-          Text(result?.brandKeywords ?? "正在分析...")
+        SwiftUI.VStack(alignment: .leading, spacing: 10) {
+          SwiftUI.Text("品牌风格关键词：").bold()
+          SwiftUI.Text(self.result?.brandKeywords ?? "正在分析...")
             .padding()
-            .background(Color.secondary.opacity(0.1))
+            .background(SwiftUI.Color.secondary.opacity(0.1))
             .cornerRadius(8)
         }
 
-        VStack(alignment: .leading, spacing: 10) {
-          Text("反推短视频提示词：").bold()
-          Text(result?.videoAnalysis.videoPrompt ?? "正在生成...")
+        SwiftUI.VStack(alignment: .leading, spacing: 10) {
+          SwiftUI.Text("反推短视频提示词：").bold()
+          SwiftUI.Text(self.result?.videoAnalysis.videoPrompt ?? "正在生成...")
             .italic()
             .padding()
-            .background(Color.secondary.opacity(0.1))
+            .background(SwiftUI.Color.secondary.opacity(0.1))
             .cornerRadius(8)
         }
 
-        Spacer()
+        SwiftUI.Spacer()
 
-        Button(action: { self.currentStep = .results }) {
-          Text("进入资产生成预览")
+        SwiftUI.Button(action: { self.currentStep = .results }) {
+          SwiftUI.Text("进入资产生成预览")
             .frame(maxWidth: .infinity)
             .padding()
-            .background(Color.accentColor)
+            .background(SwiftUI.Color.accentColor)
             .foregroundColor(.white)
             .cornerRadius(10)
         }
@@ -185,19 +185,19 @@ struct BrandOnboardingView: View {
   }
 
   // MARK: - Step 4: Results View
-  private var resultsView: some View {
-    List {
-      if let assets = result?.generatedAssets {
-        Section(header: Text("官网风格图 (2张)")) {
+  private var resultsView: some SwiftUI.View {
+    SwiftUI.List {
+      if let assets = self.result?.generatedAssets {
+        SwiftUI.Section(header: SwiftUI.Text("官网风格图 (2张)")) {
           BrandFlowAssetGrid(assets: assets.webStyleImages)
         }
 
-        Section(header: Text("INS 风格图 (2张)")) {
+        SwiftUI.Section(header: SwiftUI.Text("INS 风格图 (2张)")) {
           BrandFlowAssetGrid(assets: assets.insStyleImages)
         }
 
         if !assets.productDisplayImages.isEmpty {
-          Section(header: Text("商品展示图")) {
+          SwiftUI.Section(header: SwiftUI.Text("商品展示图")) {
             BrandFlowAssetGrid(assets: assets.productDisplayImages)
           }
         }
@@ -207,27 +207,27 @@ struct BrandOnboardingView: View {
 
   // MARK: - Logic
   private var canStart: Bool {
-    !webLink.isEmpty && !insLink.isEmpty && productImage != nil
+    return !self.webLink.isEmpty && !self.insLink.isEmpty && self.productImage != nil
   }
 
   private func startAnalysis() {
-    currentStep = .analyzing
-    statusMessage = "正在处理..."
+    self.currentStep = .analyzing
+    self.statusMessage = "正在处理..."
 
-    withAnimation { analysisProgress = 0.2 }
+    SwiftUI.withAnimation { self.analysisProgress = 0.2 }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-      statusMessage = "分析中..."
-      withAnimation { analysisProgress = 0.5 }
+      self.statusMessage = "分析中..."
+      SwiftUI.withAnimation { self.analysisProgress = 0.5 }
 
       DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-        statusMessage = "生成提示词..."
-        withAnimation { analysisProgress = 0.8 }
+        self.statusMessage = "生成提示词..."
+        SwiftUI.withAnimation { self.analysisProgress = 0.8 }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-          statusMessage = "就绪"
-          withAnimation { analysisProgress = 1.0 }
-          currentStep = .intermediate
+          self.statusMessage = "就绪"
+          SwiftUI.withAnimation { self.analysisProgress = 1.0 }
+          self.currentStep = .intermediate
           self.mockResult()
         }
       }
@@ -256,23 +256,25 @@ struct BrandOnboardingView: View {
 }
 
 // MARK: - Components
-struct BrandFlowAssetGrid: View {
+struct BrandFlowAssetGrid: SwiftUI.View {
   let assets: [BrandFlowAsset]
-  var body: some View {
-    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-      ForEach(assets) { asset in
-        Group {
+  var body: some SwiftUI.View {
+    SwiftUI.LazyVGrid(
+      columns: [SwiftUI.GridItem(.flexible()), SwiftUI.GridItem(.flexible())], spacing: 10
+    ) {
+      SwiftUI.ForEach(self.assets) { asset in
+        SwiftUI.Group {
           if let image = self.decodeBase64(asset.url) {
-            Image(uiImage: image)
+            SwiftUI.Image(uiImage: image)
               .resizable()
               .aspectRatio(9.0 / 16.0, contentMode: .fill)
               .cornerRadius(8)
               .clipped()
           } else {
-            Rectangle()
-              .fill(Color.secondary.opacity(0.2))
+            SwiftUI.Rectangle()
+              .fill(SwiftUI.Color.secondary.opacity(0.2))
               .aspectRatio(9.0 / 16.0, contentMode: .fill)
-              .overlay(Text("AI").font(.caption))
+              .overlay(SwiftUI.Text("AI").font(.caption))
               .cornerRadius(8)
           }
         }
@@ -281,51 +283,54 @@ struct BrandFlowAssetGrid: View {
     .padding(.vertical, 10)
   }
 
-  private func decodeBase64(_ url: String) -> UIImage? {
+  private func decodeBase64(_ url: String) -> UIKit.UIImage? {
     guard url.hasPrefix("data:image"),
       let base64String = url.components(separatedBy: ",").last,
-      let data = Data(base64Encoded: base64String, options: .ignoreUnknownCharacters)
+      let data = Foundation.Data(base64Encoded: base64String, options: .ignoreUnknownCharacters)
     else {
       return nil
     }
-    return UIImage(data: data)
+    return UIKit.UIImage(data: data)
   }
 }
 
-struct OnboardingImagePicker: UIViewControllerRepresentable {
-  @Binding var image: UIImage?
+struct OnboardingImagePicker: SwiftUI.UIViewControllerRepresentable {
+  @SwiftUI.Binding var image: UIKit.UIImage?
 
-  func makeUIViewController(context: Context) -> PHPickerViewController {
-    var config = PHPickerConfiguration()
+  func makeUIViewController(context: Context) -> PhotosUI.PHPickerViewController {
+    var config = PhotosUI.PHPickerConfiguration()
     config.filter = .images
-    let picker = PHPickerViewController(configuration: config)
+    let picker = PhotosUI.PHPickerViewController(configuration: config)
     picker.delegate = context.coordinator
     return picker
   }
 
-  func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+  func updateUIViewController(_ uiViewController: PhotosUI.PHPickerViewController, context: Context)
+  {}
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(self)
+    return Coordinator(self)
   }
 
-  class Coordinator: NSObject, PHPickerViewControllerDelegate {
+  class Coordinator: NSObject, PhotosUI.PHPickerViewControllerDelegate {
     let parent: OnboardingImagePicker
 
     init(_ parent: OnboardingImagePicker) {
       self.parent = parent
     }
 
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+    func picker(
+      _ picker: PhotosUI.PHPickerViewController, didFinishPicking results: [PhotosUI.PHPickerResult]
+    ) {
       picker.dismiss(animated: true)
 
       guard let provider = results.first?.itemProvider,
-        provider.canLoadObject(ofClass: UIImage.self)
+        provider.canLoadObject(ofClass: UIKit.UIImage.self)
       else { return }
 
-      provider.loadObject(ofClass: UIImage.self) { image, _ in
+      provider.loadObject(ofClass: UIKit.UIImage.self) { image, _ in
         DispatchQueue.main.async {
-          self.parent.image = image as? UIImage
+          self.parent.image = image as? UIKit.UIImage
         }
       }
     }
