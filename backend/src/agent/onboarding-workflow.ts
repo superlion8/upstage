@@ -153,7 +153,7 @@ async function performVLMSelection(imageUrls: string[], instruction: string, tag
         ${imagesToAnalyze.join('\n')}`;
 
         const result = await client.models.generateContent({
-            model: "gemini-2.0-flash",
+            model: "gemini-3-flash-preview",
             contents: prompt
         });
         const text = result.text?.trim() || '';
@@ -174,7 +174,7 @@ async function performVLMSelection(imageUrls: string[], instruction: string, tag
 async function performVLMTextTask(prompt: string): Promise<string> {
     const client = getGenAIClient();
     const result = await client.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-3-flash-preview",
         contents: prompt
     });
     return result.text || '';
