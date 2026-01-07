@@ -37,6 +37,13 @@ struct BrandFlowResult: Codable {
   let generatedAssets: BrandFlowGeneratedAssets
 }
 
+enum OnboardingStep {
+  case input
+  case analyzing
+  case intermediate
+  case results
+}
+
 // MARK: - Main View
 struct BrandOnboardingView: SwiftUI.View {
   @SwiftUI.State private var webLink: String = ""
@@ -52,28 +59,10 @@ struct BrandOnboardingView: SwiftUI.View {
   @SwiftUI.State private var currentStep: OnboardingStep = .input
   @SwiftUI.State private var result: BrandFlowResult? = nil
 
-  enum OnboardingStep {
-    case input
-    case analyzing
-    case intermediate
-    case results
-  }
-
   var body: some SwiftUI.View {
     SwiftUI.NavigationView {
       SwiftUI.VStack {
-        SwiftUI.Group {
-          switch self.currentStep {
-          case .input:
-            self.inputForm
-          case .analyzing:
-            self.analysisView
-          case .intermediate:
-            self.intermediateView
-          case .results:
-            self.resultsView
-          }
-        }
+        caseStepView
       }
       .navigationTitle("品牌引导流程")
       .navigationBarTitleDisplayMode(.inline)
@@ -83,150 +72,49 @@ struct BrandOnboardingView: SwiftUI.View {
     }
   }
 
-  // MARK: - Step 1: Input Form
-  private var inputForm: some SwiftUI.View {
-    SwiftUI.Form {
-      SwiftUI.Section(header: SwiftUI.Text("品牌资产链接")) {
-        SwiftUI.TextField("官网商品详情页链接", text: self.$webLink)
-          .autocapitalization(.none)
-        SwiftUI.TextField("Instagram 内容链接", text: self.$insLink)
-          .autocapitalization(.none)
-        SwiftUI.TextField("UGC 讲解视频链接", text: self.$videoUrl)
-          .autocapitalization(.none)
-      }
-
-      SwiftUI.Section(header: SwiftUI.Text("商品图")) {
-        SwiftUI.Button(action: { self.showingImagePicker = true }) {
-          if let image = self.productImage {
-            SwiftUI.Image(uiImage: image)
-              .resizable()
-              .scaledToFit()
-              .frame(height: 200)
-          } else {
-            SwiftUI.HStack {
-              SwiftUI.Image(systemName: "photo.badge.plus")
-              SwiftUI.Text("点击上传需要模特拍摄的商品图")
-            }
-            .foregroundColor(.accentColor)
-          }
-        }
-      }
-
-      SwiftUI.Button(action: { self.startAnalysis() }) {
-        SwiftUI.Text("开始品牌分析")
-          .frame(maxWidth: .infinity)
-          .padding()
-          .background(self.canStart ? SwiftUI.Color.accentColor : SwiftUI.Color.gray)
-          .foregroundColor(.white)
-          .cornerRadius(10)
-      }
-      .disabled(!self.canStart)
-      .listRowBackground(SwiftUI.Color.clear)
+  @ViewBuilder
+  private var caseStepView: some SwiftUI.View {
+    switch self.currentStep {
+    case .input:
+      InputStepView(
+        webLink: self.$webLink,
+        insLink: self.$insLink,
+        videoUrl: self.$videoUrl,
+        productImage: self.productImage,
+        onShowPicker: { self.showingImagePicker = true },
+        onStart: { self.startAnalysis() }
+      )
+    case .analyzing:
+      AnalysisStepView(
+        progress: self.analysisProgress,
+        message: self.statusMessage
+      )
+    case .intermediate:
+      IntermediateStepView(
+        result: self.result,
+        onNext: { self.currentStep = .results }
+      )
+    case .results:
+      ResultsStepView(result: self.result)
     }
-  }
-
-  // MARK: - Step 2: Analysis View
-  private var analysisView: some SwiftUI.View {
-    SwiftUI.VStack(spacing: 30) {
-      SwiftUI.Spacer()
-      SwiftUI.ProgressView(value: self.analysisProgress, total: 1.0)
-        .progressViewStyle(SwiftUI.LinearProgressViewStyle())
-        .padding()
-
-      SwiftUI.Text(self.statusMessage)
-        .font(.headline)
-
-      SwiftUI.Text("正在分析品牌 DNA...")
-        .font(.subheadline)
-        .foregroundColor(.secondary)
-
-      SwiftUI.Spacer()
-    }
-    .padding()
-  }
-
-  // MARK: - Step 3: Intermediate View
-  private var intermediateView: some SwiftUI.View {
-    SwiftUI.ScrollView {
-      SwiftUI.VStack(alignment: .leading, spacing: 20) {
-        SwiftUI.Text("分析完成！")
-          .font(.title2).bold()
-
-        SwiftUI.VStack(alignment: .leading, spacing: 10) {
-          SwiftUI.Text("品牌风格关键词：").bold()
-          SwiftUI.Text(self.result?.brandKeywords ?? "正在分析...")
-            .padding()
-            .background(SwiftUI.Color.secondary.opacity(0.1))
-            .cornerRadius(8)
-        }
-
-        SwiftUI.VStack(alignment: .leading, spacing: 10) {
-          SwiftUI.Text("反推短视频提示词：").bold()
-          SwiftUI.Text(self.result?.videoAnalysis.videoPrompt ?? "正在生成...")
-            .italic()
-            .padding()
-            .background(SwiftUI.Color.secondary.opacity(0.1))
-            .cornerRadius(8)
-        }
-
-        SwiftUI.Spacer()
-
-        SwiftUI.Button(action: { self.currentStep = .results }) {
-          SwiftUI.Text("进入资产生成预览")
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(SwiftUI.Color.accentColor)
-            .foregroundColor(.white)
-            .cornerRadius(10)
-        }
-      }
-      .padding()
-    }
-  }
-
-  // MARK: - Step 4: Results View
-  private var resultsView: some SwiftUI.View {
-    SwiftUI.List {
-      if let assets = self.result?.generatedAssets {
-        SwiftUI.Section(header: SwiftUI.Text("官网风格图 (2张)")) {
-          BrandFlowAssetGrid(assets: assets.webStyleImages)
-        }
-
-        SwiftUI.Section(header: SwiftUI.Text("INS 风格图 (2张)")) {
-          BrandFlowAssetGrid(assets: assets.insStyleImages)
-        }
-
-        if !assets.productDisplayImages.isEmpty {
-          SwiftUI.Section(header: SwiftUI.Text("商品展示图")) {
-            BrandFlowAssetGrid(assets: assets.productDisplayImages)
-          }
-        }
-      }
-    }
-  }
-
-  // MARK: - Logic
-  private var canStart: Bool {
-    return !self.webLink.isEmpty && !self.insLink.isEmpty && self.productImage != nil
   }
 
   private func startAnalysis() {
     self.currentStep = .analyzing
     self.statusMessage = "正在处理..."
-
-    SwiftUI.withAnimation { self.analysisProgress = 0.2 }
+    self.analysisProgress = 0.2
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
       self.statusMessage = "分析中..."
-      SwiftUI.withAnimation { self.analysisProgress = 0.5 }
+      self.analysisProgress = 0.5
 
       DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
         self.statusMessage = "生成提示词..."
-        SwiftUI.withAnimation { self.analysisProgress = 0.8 }
+        self.analysisProgress = 0.8
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
           self.statusMessage = "就绪"
-          SwiftUI.withAnimation { self.analysisProgress = 1.0 }
+          self.analysisProgress = 1.0
           self.currentStep = .intermediate
           self.mockResult()
         }
@@ -252,6 +140,152 @@ struct BrandOnboardingView: SwiftUI.View {
       videoAnalysis: video,
       generatedAssets: assets
     )
+  }
+}
+
+// MARK: - Sub Views
+struct InputStepView: SwiftUI.View {
+  @SwiftUI.Binding var webLink: String
+  @SwiftUI.Binding var insLink: String
+  @SwiftUI.Binding var videoUrl: String
+  let productImage: UIKit.UIImage?
+  let onShowPicker: () -> Void
+  let onStart: () -> Void
+
+  var body: some SwiftUI.View {
+    SwiftUI.Form {
+      SwiftUI.Section(header: SwiftUI.Text("品牌资产链接")) {
+        SwiftUI.TextField("官网商品详情页链接", text: self.$webLink)
+          .autocapitalization(.none)
+        SwiftUI.TextField("Instagram 内容链接", text: self.$insLink)
+          .autocapitalization(.none)
+        SwiftUI.TextField("UGC 讲解视频链接", text: self.$videoUrl)
+          .autocapitalization(.none)
+      }
+
+      SwiftUI.Section(header: SwiftUI.Text("商品图")) {
+        SwiftUI.Button(action: self.onShowPicker) {
+          if let image = self.productImage {
+            SwiftUI.Image(uiImage: image)
+              .resizable()
+              .scaledToFit()
+              .frame(height: 200)
+          } else {
+            SwiftUI.HStack {
+              SwiftUI.Image(systemName: "photo.badge.plus")
+              SwiftUI.Text("点击上传需要模特拍摄的商品图")
+            }
+            .foregroundColor(.accentColor)
+          }
+        }
+      }
+
+      SwiftUI.Button(action: self.onStart) {
+        SwiftUI.Text("开始品牌分析")
+          .frame(maxWidth: .infinity)
+          .padding()
+          .background(canStart ? SwiftUI.Color.accentColor : SwiftUI.Color.gray)
+          .foregroundColor(.white)
+          .cornerRadius(10)
+      }
+      .disabled(!canStart)
+      .listRowBackground(SwiftUI.Color.clear)
+    }
+  }
+
+  private var canStart: Bool {
+    return !webLink.isEmpty && !insLink.isEmpty && productImage != nil
+  }
+}
+
+struct AnalysisStepView: SwiftUI.View {
+  let progress: Double
+  let message: String
+
+  var body: some SwiftUI.View {
+    SwiftUI.VStack(spacing: 30) {
+      SwiftUI.Spacer()
+      SwiftUI.ProgressView(value: self.progress, total: 1.0)
+        .progressViewStyle(SwiftUI.LinearProgressViewStyle())
+        .padding()
+
+      SwiftUI.Text(self.message)
+        .font(.headline)
+
+      SwiftUI.Text("正在分析品牌 DNA...")
+        .font(.subheadline)
+        .foregroundColor(.secondary)
+
+      SwiftUI.Spacer()
+    }
+    .padding()
+  }
+}
+
+struct IntermediateStepView: SwiftUI.View {
+  let result: BrandFlowResult?
+  let onNext: () -> Void
+
+  var body: some SwiftUI.View {
+    SwiftUI.ScrollView {
+      SwiftUI.VStack(alignment: .leading, spacing: 20) {
+        SwiftUI.Text("分析完成！")
+          .font(.title2).bold()
+
+        SwiftUI.VStack(alignment: .leading, spacing: 10) {
+          SwiftUI.Text("品牌风格关键词：").bold()
+          SwiftUI.Text(self.result?.brandKeywords ?? "正在分析...")
+            .padding()
+            .background(SwiftUI.Color.secondary.opacity(0.1))
+            .cornerRadius(8)
+        }
+
+        SwiftUI.VStack(alignment: .leading, spacing: 10) {
+          SwiftUI.Text("反推短视频提示词：").bold()
+          SwiftUI.Text(self.result?.videoAnalysis.videoPrompt ?? "正在生成...")
+            .italic()
+            .padding()
+            .background(SwiftUI.Color.secondary.opacity(0.1))
+            .cornerRadius(8)
+        }
+
+        SwiftUI.Spacer()
+
+        SwiftUI.Button(action: self.onNext) {
+          SwiftUI.Text("进入资产生成预览")
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(SwiftUI.Color.accentColor)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+        }
+      }
+      .padding()
+    }
+  }
+}
+
+struct ResultsStepView: SwiftUI.View {
+  let result: BrandFlowResult?
+
+  var body: some SwiftUI.View {
+    SwiftUI.List {
+      if let assets = self.result?.generatedAssets {
+        SwiftUI.Section(header: SwiftUI.Text("官网风格图 (2张)")) {
+          BrandFlowAssetGrid(assets: assets.webStyleImages)
+        }
+
+        SwiftUI.Section(header: SwiftUI.Text("INS 风格图 (2张)")) {
+          BrandFlowAssetGrid(assets: assets.insStyleImages)
+        }
+
+        if !assets.productDisplayImages.isEmpty {
+          SwiftUI.Section(header: SwiftUI.Text("商品展示图")) {
+            BrandFlowAssetGrid(assets: assets.productDisplayImages)
+          }
+        }
+      }
+    }
   }
 }
 
@@ -320,7 +354,7 @@ struct OnboardingImagePicker: SwiftUI.UIViewControllerRepresentable {
     }
 
     func picker(
-      _ picker: PhotosUI.PHPickerViewController, didFinishPicking results: [PhotosUI.PHPickerResult]
+      _ picker: PhotosUI.PHPickerViewController, didFinishPicking results: [PHPickerResult]
     ) {
       picker.dismiss(animated: true)
 
