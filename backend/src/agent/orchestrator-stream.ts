@@ -114,7 +114,19 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       let response;
       if (iteration === 0) {
         // 第一次迭代：发送用户消息
-        // sendMessage 接受 parts 数组或字符串
+        // 确保 parts 不为空
+        if (currentParts.length === 0) {
+          currentParts.push({ text: '请帮我处理' });
+        }
+
+        // Debug: log the parts being sent
+        logger.info('Sending message to chat', {
+          partsCount: currentParts.length,
+          partTypes: currentParts.map((p: any) => Object.keys(p)),
+          hasInlineData: currentParts.some((p: any) => p.inlineData),
+          hasText: currentParts.some((p: any) => p.text),
+        });
+
         console.log(`\n[Iteration ${iteration + 1}] Sending user message with ${currentParts.length} parts`);
         response = await chat.sendMessage(currentParts);
       } else {
