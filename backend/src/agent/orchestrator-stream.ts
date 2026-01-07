@@ -189,10 +189,11 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
         .join('\n');
 
       if (actualText) {
-        const chunks = splitIntoChunks(actualText, 50);
+        console.log(`[Iteration ${iteration + 1}] Found actual text (${actualText.length} chars): ${actualText.substring(0, 100)}...`);
+        const chunks = splitIntoChunks(actualText, 200);
         for (const chunk of chunks) {
           yield { type: 'text_delta', data: { delta: chunk } };
-          await sleep(20);
+          await sleep(10);
         }
       }
 
@@ -516,10 +517,11 @@ async function* processToolCalls(
       .join('\n');
 
     if (actualText) {
-      const chunks = splitIntoChunks(actualText, 50);
+      console.log(`[Depth ${depth}] Found actual text (${actualText.length} chars): ${actualText.substring(0, 100)}...`);
+      const chunks = splitIntoChunks(actualText, 200);
       for (const chunk of chunks) {
         yield { type: 'text_delta', data: { delta: chunk } };
-        await sleep(20);
+        await sleep(10);
       }
     }
 
@@ -527,30 +529,17 @@ async function* processToolCalls(
     const nextFunctionCalls = extractFunctionCalls(nextResponse);
 
     if (nextFunctionCalls.length > 0) {
-      // 递归处理
-      for await (const event of processToolCalls(
-        chat,
-        nextFunctionCalls,
-        input,
-        imageContext,
-        depth + 1
-      )) {
-        yield event;
+      try {
+        yield* processToolCalls(chat, nextFunctionCalls, input, imageContext, depth + 1);
+      } catch (recurseError) {
+        logger.error('Recursive tool call failed', { depth, error: recurseError });
+        yield { type: 'error', data: { message: 'Recursive processing failed', details: String(recurseError) } };
       }
       return;
     }
 
-    // 输出最终文本
-    const finalText = extractText(nextResponse);
-    if (finalText) {
-      const chunks = splitIntoChunks(finalText, 10);
-      for (const chunk of chunks) {
-        yield { type: 'text_delta', data: { delta: chunk } };
-        await sleep(20);
-      }
-    } else {
-      yield { type: 'text_delta', data: { delta: '任务完成！' } };
-    }
+    // 这一轮没有新的工具调用，递归结束。
+    // 由于上面已经 yield 了 actualText，这里不需要再处理 finalText。
     return;
   }
 }
