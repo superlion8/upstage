@@ -37,6 +37,20 @@ import {
   EDIT_IMAGE_TOOL_DEFINITION,
 } from './generate-image.js';
 
+import {
+  generateSoraVideo,
+  SORA_VIDEO_TOOL_DEFINITION,
+} from './video-gen.js';
+
+import {
+  scrapeWebsite,
+  analyzeSocial,
+  analyzeVideo,
+  WEB_SCRAPER_TOOL_DEFINITION,
+  SOCIAL_ANALYZER_TOOL_DEFINITION,
+  VIDEO_ANALYZER_TOOL_DEFINITION,
+} from './scrapers.js';
+
 import { z } from 'zod';
 
 // ============================================
@@ -91,6 +105,19 @@ const TOOL_SCHEMAS: Record<string, z.ZodSchema> = {
     message: z.string().optional(),
     prefill_data: z.record(z.any()).optional(),
   }),
+  web_scraper: z.object({
+    url: z.string().url(),
+  }),
+  social_analyzer: z.object({
+    url: z.string().url(),
+  }),
+  video_to_text: z.object({
+    url: z.string().url(),
+  }),
+  generate_sora_video: z.object({
+    prompt: z.string(),
+    preview_image: z.string().optional(),
+  }),
 };
 
 // ============================================
@@ -98,6 +125,12 @@ const TOOL_SCHEMAS: Record<string, z.ZodSchema> = {
 // ============================================
 
 export const AGENT_TOOLS = [
+  // 品牌引导流程相关
+  WEB_SCRAPER_TOOL_DEFINITION,
+  SOCIAL_ANALYZER_TOOL_DEFINITION,
+  VIDEO_ANALYZER_TOOL_DEFINITION,
+  SORA_VIDEO_TOOL_DEFINITION,
+
   // 搭配师 - 分析图像生成搭配建议
   STYLIST_TOOL_DEFINITION,
 
@@ -434,6 +467,54 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       outfit_instruct_en: result.outfit_instruct_en,
       outfit_instruct: result.outfit_instruct_en,
       message: '搭配方案已生成！',
+      shouldContinue: true,
+    };
+  },
+
+  // ============================================
+  // 品牌引导流程相关工具执行项
+  // ============================================
+  web_scraper: async (args) => {
+    const result = await scrapeWebsite(args.url);
+    return {
+      success: true,
+      ...result,
+      message: '网页抓取完成',
+      shouldContinue: true,
+    };
+  },
+
+  social_analyzer: async (args) => {
+    const result = await analyzeSocial(args.url);
+    return {
+      success: true,
+      ...result,
+      message: '社交媒体分析完成',
+      shouldContinue: true,
+    };
+  },
+
+  video_to_text: async (args) => {
+    const result = await analyzeVideo(args.url);
+    return {
+      success: true,
+      ...result,
+      message: '视频分析完成',
+      shouldContinue: true,
+    };
+  },
+
+  generate_sora_video: async (args, context) => {
+    const previewImage = args.preview_image
+      ? resolveImageRef(args.preview_image, context.imageContext)
+      : undefined;
+
+    const result = await generateSoraVideo(args.prompt, { preview_image: previewImage });
+
+    return {
+      success: true,
+      ...result,
+      message: 'Sora 视频生成完成',
       shouldContinue: true,
     };
   },

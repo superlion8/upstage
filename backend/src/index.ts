@@ -22,6 +22,7 @@ import { chatRoutes } from './api/chat.js';
 import { chatStreamRoutes } from './api/chat-stream.js';
 import { assetsRoutes } from './api/assets.js';
 import { shootRoomRoutes } from './api/shoot-room.js';
+import onboardingRoutes from './api/onboarding.js';
 
 const log = createLogger('server');
 
@@ -33,30 +34,30 @@ async function buildServer() {
   const fastify = Fastify({
     logger: false, // We use our own logger
   });
-  
+
   // ============================================
   // Plugins
   // ============================================
-  
+
   // CORS
   await fastify.register(cors, {
     origin: config.server.isDev ? true : ['https://onstage.app'], // Adjust for production
     credentials: true,
   });
-  
+
   // Multipart (file uploads)
   await fastify.register(multipart, {
     limits: {
       fileSize: config.storage.maxFileSizeBytes,
     },
   });
-  
+
   // Rate limiting
   await fastify.register(rateLimit, {
     max: config.rateLimit.max,
     timeWindow: config.rateLimit.windowMs,
   });
-  
+
   // Swagger documentation
   if (config.server.isDev) {
     await fastify.register(swagger, {
@@ -80,19 +81,19 @@ async function buildServer() {
         },
       },
     });
-    
+
     await fastify.register(swaggerUi, {
       routePrefix: '/docs',
     });
   }
-  
+
   // Authentication
   await setupAuth(fastify);
-  
+
   // ============================================
   // Routes
   // ============================================
-  
+
   // Health check
   fastify.get('/health', async () => {
     const dbOk = await checkDatabaseConnection();
@@ -102,18 +103,19 @@ async function buildServer() {
       database: dbOk ? 'connected' : 'disconnected',
     };
   });
-  
+
   // API routes
   await fastify.register(authRoutes, { prefix: '/api/auth' });
   await fastify.register(chatRoutes, { prefix: '/api/chat' });
   await fastify.register(chatStreamRoutes, { prefix: '/api/chat' }); // Streaming endpoint
   await fastify.register(assetsRoutes, { prefix: '/api/assets' });
   await fastify.register(shootRoomRoutes, { prefix: '/api/shoot-room' });
-  
+  await fastify.register(onboardingRoutes, { prefix: '/api' });
+
   // ============================================
   // Error Handling
   // ============================================
-  
+
   fastify.setErrorHandler((error, request, reply) => {
     log.error('Request error', {
       error: error.message,
@@ -121,7 +123,7 @@ async function buildServer() {
       url: request.url,
       method: request.method,
     });
-    
+
     // Zod validation errors
     if (error.name === 'ZodError') {
       return reply.status(400).send({
@@ -130,7 +132,7 @@ async function buildServer() {
         details: error.issues,
       });
     }
-    
+
     // JWT errors
     if (error.code === 'FST_JWT_NO_AUTHORIZATION_IN_HEADER') {
       return reply.status(401).send({
@@ -138,14 +140,14 @@ async function buildServer() {
         error: 'Authorization header required',
       });
     }
-    
+
     // Default error
     return reply.status(error.statusCode || 500).send({
       success: false,
       error: config.server.isDev ? error.message : 'Internal server error',
     });
   });
-  
+
   return fastify;
 }
 
@@ -162,21 +164,21 @@ async function start() {
     } else {
       log.warn('Database not connected - some features may not work');
     }
-    
+
     // Build and start server
     const server = await buildServer();
-    
+
     await server.listen({
       port: config.server.port,
       host: config.server.host,
     });
-    
+
     log.info(`🚀 Server running at http://${config.server.host}:${config.server.port}`);
-    
+
     if (config.server.isDev) {
       log.info(`📚 API docs at http://localhost:${config.server.port}/docs`);
     }
-    
+
   } catch (error) {
     log.error('Failed to start server', { error });
     process.exit(1);

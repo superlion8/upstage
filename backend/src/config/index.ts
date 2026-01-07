@@ -11,40 +11,44 @@ const envSchema = z.object({
   PORT: z.string().default('3000'),
   HOST: z.string().default('0.0.0.0'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  
+
   // Database (Railway provides DATABASE_URL automatically)
   DATABASE_URL: z.string().min(1),
-  
+
   // Supabase (optional - for storage and auth)
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_ANON_KEY: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
-  
+
   // Redis (optional)
   REDIS_URL: z.string().optional(),
-  
+
   // Google AI / Vertex AI
   GEMINI_API_KEY: z.string().min(1), // Works for both AI Studio and Vertex AI
   VERTEX_AI_ENABLED: z.string().default('true'), // Use Vertex AI endpoint
-  
+
+  // Sora 2 API
+  SORA_API_KEY: z.string().optional(),
+  SORA_MODEL: z.string().default('sora-2'),
+
   // Models
   THINKING_MODEL: z.string().default('gemini-3-flash-preview'),
   STYLIST_MODEL: z.string().default('gemini-3-flash-preview'),
   IMAGE_GEN_MODEL: z.string().default('gemini-3-pro-image-preview'),
   ANALYSIS_MODEL: z.string().default('gemini-3-flash-preview'),
-  
+
   // JWT
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('7d'),
-  
+
   // Rate Limiting
   RATE_LIMIT_MAX: z.string().default('100'),
   RATE_LIMIT_WINDOW_MS: z.string().default('60000'),
-  
+
   // Storage
   STORAGE_BUCKET: z.string().default('onstage-assets'),
   MAX_FILE_SIZE_MB: z.string().default('10'),
-  
+
   // Logging
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
@@ -52,13 +56,13 @@ const envSchema = z.object({
 // Parse and validate environment variables
 function loadConfig() {
   const result = envSchema.safeParse(process.env);
-  
+
   if (!result.success) {
     console.error('❌ Invalid environment variables:');
     console.error(result.error.format());
     process.exit(1);
   }
-  
+
   return result.data;
 }
 
@@ -74,7 +78,7 @@ export const config = {
     isProd: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
   },
-  
+
   // Database
   database: {
     url: env.DATABASE_URL,
@@ -82,13 +86,13 @@ export const config = {
     supabaseAnonKey: env.SUPABASE_ANON_KEY || null,
     supabaseServiceKey: env.SUPABASE_SERVICE_ROLE_KEY || null,
   },
-  
+
   // Redis (optional)
   redis: {
     url: env.REDIS_URL || null,
     enabled: !!env.REDIS_URL,
   },
-  
+
   // AI Models
   ai: {
     apiKey: env.GEMINI_API_KEY,
@@ -101,27 +105,31 @@ export const config = {
       imageGen: env.IMAGE_GEN_MODEL,
       analysis: env.ANALYSIS_MODEL,
     },
+    sora: {
+      apiKey: env.SORA_API_KEY || env.GEMINI_API_KEY, // Fallback if applicable or separate
+      model: env.SORA_MODEL,
+    },
   },
-  
+
   // JWT
   jwt: {
     secret: env.JWT_SECRET,
     expiresIn: env.JWT_EXPIRES_IN,
   },
-  
+
   // Rate Limiting
   rateLimit: {
     max: parseInt(env.RATE_LIMIT_MAX, 10),
     windowMs: parseInt(env.RATE_LIMIT_WINDOW_MS, 10),
   },
-  
+
   // Storage
   storage: {
     bucket: env.STORAGE_BUCKET,
     maxFileSizeMB: parseInt(env.MAX_FILE_SIZE_MB, 10),
     maxFileSizeBytes: parseInt(env.MAX_FILE_SIZE_MB, 10) * 1024 * 1024,
   },
-  
+
   // Logging
   logging: {
     level: env.LOG_LEVEL,
