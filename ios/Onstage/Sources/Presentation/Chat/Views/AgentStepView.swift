@@ -63,7 +63,10 @@ struct AgentStepsView: View {
         case .thinking:
             return "思考"
         case .toolCall:
-            return toolDisplayName(step.tool ?? "unknown")
+            // 显示中文名称 + 原始工具名
+            let displayName = toolDisplayName(step.tool ?? "unknown")
+            let originalName = step.tool ?? "unknown"
+            return "\(displayName) (\(originalName))"
         case .toolResult:
             let success = step.result?.success == true
             return "\(toolDisplayName(step.tool ?? "")) \(success ? "完成" : "失败")"
@@ -71,10 +74,8 @@ struct AgentStepsView: View {
     }
     
     private func subtitleForStep(_ step: AgentStep) -> String? {
-        if step.type == .toolCall {
-            return step.result?.message
-        }
-        return nil
+        // 显示工具执行结果消息
+        return step.result?.message
     }
     
     private func toolDisplayName(_ tool: String) -> String {
