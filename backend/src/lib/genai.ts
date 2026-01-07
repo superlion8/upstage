@@ -96,37 +96,46 @@ export function extractImages(response: any): Array<{ mimeType: string; data: st
 /**
  * Extract thinking/reasoning from a Gemini response (if available)
  * Handles multiple possible field names used by different Gemini model versions
+ * 
+ * Gemini 3 thinking 模型的响应结构：
+ * - part.thought: boolean (true 表示这是思考部分)
+ * - part.text: string (思考的实际文本内容)
  */
 export function extractThinking(response: any): string | null {
   try {
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) return null;
     
-    // 尝试多种可能的字段名
-    const thinkingParts = candidate.content.parts
-      .map((part: any) => {
-        // Gemini 3 可能使用 "thought" 或 "thinking" 或其他字段
-        return part.thought || part.thinking || part.reasoning || null;
-      })
-      .filter(Boolean);
+    const thinkingTexts: string[] = [];
     
-    // 如果没有找到，尝试 candidate 级别
-    if (thinkingParts.length === 0) {
-      const candidateThinking = candidate.thinking || candidate.thought || candidate.reasoning;
-      if (candidateThinking) {
-        return candidateThinking;
+    for (const part of candidate.content.parts) {
+      // Gemini 3: thought=true 表示这是思考部分，实际文本在 text 字段
+      if (part.thought === true && part.text && typeof part.text === 'string') {
+        thinkingTexts.push(part.text);
+      }
+      // 兼容其他格式：thinking 或 reasoning 直接是字符串
+      else if (typeof part.thinking === 'string') {
+        thinkingTexts.push(part.thinking);
+      }
+      else if (typeof part.reasoning === 'string') {
+        thinkingTexts.push(part.reasoning);
+      }
+      // 如果 thought 本身是字符串（非布尔值）
+      else if (typeof part.thought === 'string') {
+        thinkingTexts.push(part.thought);
       }
     }
     
-    // 如果还是没有，检查 groundingMetadata 或其他元数据
-    if (thinkingParts.length === 0) {
-      const metadata = candidate.groundingMetadata || candidate.metadata;
-      if (metadata?.thinking) {
-        return metadata.thinking;
+    // 检查 candidate 级别
+    if (thinkingTexts.length === 0) {
+      if (typeof candidate.thinking === 'string') {
+        thinkingTexts.push(candidate.thinking);
+      } else if (typeof candidate.thought === 'string') {
+        thinkingTexts.push(candidate.thought);
       }
     }
     
-    return thinkingParts.join('\n').trim() || null;
+    return thinkingTexts.join('\n').trim() || null;
   } catch (err) {
     console.error('Error extracting thinking:', err);
     return null;

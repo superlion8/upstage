@@ -199,7 +199,13 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
             timestamp: new Date(),
           });
           
-          // Check if this is a GUI request
+          logger.info('Tool executed successfully', { 
+            tool: functionCall.name, 
+            hasImages: !!toolResult.images,
+            shouldContinue: toolResult.shouldContinue,
+          });
+          
+          // Check if this is a GUI request - 需要用户输入，直接返回
           if (functionCall.name === 'request_gui_input') {
             return {
               response: {
@@ -215,10 +221,19 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
             };
           }
           
-          // 简化逻辑：工具执行成功后直接返回结果
-          // 避免多轮调用时的 thought_signature 问题
-          if (toolResult.images) {
-            // 如果工具返回了图片，直接返回
+          // 将工具结果添加到上下文，让模型继续思考
+          context = appendToolResult(
+            context, 
+            functionCall.name, 
+            functionCall.args, 
+            toolResult,
+            modelParts  // 传入完整的 model parts（包含 thought_signature）
+          );
+          
+          // 如果工具返回了图片且标记为不需要继续，则直接返回
+          // 否则继续 loop 让模型决定下一步
+          if (toolResult.images && toolResult.shouldContinue === false) {
+            logger.info('Tool returned images and marked as complete, ending loop');
             return {
               response: {
                 text: toolResult.message || '图片已生成完成 ✨',
@@ -229,49 +244,55 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
             };
           }
           
-          // 如果工具没有返回图片（如 stylist），构建友好的响应
-          let responseText = toolResult.message || '处理完成';
-          
-          // 特殊处理 stylist 工具的输出
-          if (functionCall.name === 'stylist' && toolResult.outfit_instruct_zh) {
-            responseText = `🎨 **搭配方案已生成**\n\n${toolResult.outfit_instruct_zh}\n\n需要我基于这个搭配方案生成模特图吗？`;
-          }
-          
-          return {
-            response: {
-              text: responseText,
-            },
-            toolCalls,
-            thinking,
-          };
+          // 继续下一轮迭代，让模型看到工具结果并决定下一步
+          logger.info('Continuing agent loop after tool execution');
+          continue;
           
         } catch (toolError) {
           logger.error('Tool execution failed', { tool: functionCall.name, error: toolError });
           
-          // 工具执行失败，直接返回错误信息
-          const errorMessage = toolError instanceof Error ? toolError.message : 'Unknown error';
+          // 工具执行失败，记录失败信息
+          toolCalls.push({
+            tool: functionCall.name,
+            arguments: functionCall.args,
+            result: { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' },
+            timestamp: new Date(),
+          });
           
-          return {
-            response: {
-              text: `😅 抱歉，在执行「${getToolDisplayName(functionCall.name)}」时遇到了问题：${errorMessage}\n\n请稍后重试或换一种方式描述你的需求。`,
-            },
-            toolCalls,
-            thinking,
-          };
+          // 将错误信息添加到上下文，让模型决定如何处理
+          context = appendToolResult(
+            context, 
+            functionCall.name, 
+            functionCall.args, 
+            { success: false, error: toolError instanceof Error ? toolError.message : 'Unknown error' },
+            modelParts
+          );
+          
+          // 继续让模型处理错误情况
+          continue;
         }
       }
       
-      // No tool call - extract final response
+      // No tool call - model is ready to give final response
+      logger.info('No tool call detected, extracting final response', { iteration: iteration + 1 });
+      
       const textResponse = extractText(response);
       
-      // Check if any tool calls returned images
+      // Collect all generated images from tool calls
       const generatedImages = toolCalls
         .filter(tc => tc.result?.images)
         .flatMap(tc => tc.result.images);
       
+      logger.info('Agent loop completed', { 
+        totalIterations: iteration + 1, 
+        totalToolCalls: toolCalls.length,
+        hasGeneratedImages: generatedImages.length > 0,
+        thinkingLength: thinking.length,
+      });
+      
       return {
         response: {
-          text: textResponse || '抱歉，我遇到了一些问题。请重试或换一种方式描述你的需求。',
+          text: textResponse || '任务完成！如果需要进一步调整，请告诉我。',
           generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
         },
         toolCalls,
