@@ -102,7 +102,6 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
   const currentParts = buildCurrentMessageParts(input, imageContext);
 
   logger.info('Chat session created', {
-    historyLength: initialHistory.length,
     currentPartsCount: currentParts.length,
   });
 
