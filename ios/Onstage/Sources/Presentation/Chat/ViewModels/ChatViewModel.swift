@@ -189,7 +189,7 @@ final class ChatViewModel: ObservableObject {
         isLoading = true
         
         // Get token
-        guard let token = KeychainManager.shared.getToken() else {
+        guard let token = KeychainManager.shared.getAuthToken() else {
             updateStreamingMessage(id: streamingMessageId, text: "认证失败，请重新登录", status: .failed)
             isLoading = false
             return
