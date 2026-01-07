@@ -57,8 +57,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   'edit_image': '编辑图片',
 };
 
-// 控制是否向前端暴露 thinking 内容（默认关闭，仅开发模式开启）
-const EXPOSE_THINKING = process.env.EXPOSE_THINKING === 'true';
+// 控制是否向前端暴露 thinking 内容（默认开启）
+const EXPOSE_THINKING = process.env.EXPOSE_THINKING !== 'false';
 
 // ============================================
 // Streaming Agent Generator
