@@ -105,7 +105,13 @@ final class OnboardingService {
 
     print("📤 [POST] \(url.absoluteString)")
 
-    let (data, response) = try await URLSession.shared.data(for: request)
+    // Use custom session with longer timeout for this long-running operation
+    let config = URLSessionConfiguration.default
+    config.timeoutIntervalForRequest = 300  // 5 minutes
+    config.timeoutIntervalForResource = 300
+    let session = URLSession(configuration: config)
+
+    let (data, response) = try await session.data(for: request)
 
     guard let httpResponse = response as? HTTPURLResponse else {
       throw NSError(
