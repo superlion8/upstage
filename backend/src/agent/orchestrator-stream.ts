@@ -243,13 +243,17 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
             };
           }
 
-          // 发送工具响应 - SDK 自动处理 thought_signature
+          // 发送工具响应 - 去掉 base64 图片数据以避免 token 超限
           console.log(`[Iteration ${iteration + 1}] Sending function response for ${functionCall.name}`);
+
+          // 过滤掉 base64 图片数据，只保留元数据
+          const sanitizedResult = sanitizeToolResultForModel(toolResult);
+
           const nextResponse = await chat.sendMessage({
             message: [{
               functionResponse: {
                 name: functionCall.name,
-                response: toolResult,
+                response: sanitizedResult,
               },
             }]
           });
@@ -418,13 +422,14 @@ async function* processToolCalls(
       };
     }
 
-    // 发送工具响应
+    // 发送工具响应 - 去掉 base64 图片数据以避免 token 超限
     console.log(`[Depth ${depth}] Sending function response for ${functionCall.name}`);
+    const sanitizedResult = sanitizeToolResultForModel(toolResult);
     const nextResponse = await chat.sendMessage({
       message: [{
         functionResponse: {
           name: functionCall.name,
-          response: toolResult,
+          response: sanitizedResult,
         },
       }]
     });
@@ -501,6 +506,42 @@ function splitIntoChunks(text: string, chunkSize: number): string[] {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 过滤工具结果中的 base64 图片数据，避免发送给模型时 token 超限
+ * 只保留图片的元数据（id, url 前缀），不包含完整数据
+ */
+function sanitizeToolResultForModel(result: any): any {
+  if (!result) return result;
+
+  // 如果有 images 数组，移除 base64 data 字段
+  if (result.images && Array.isArray(result.images)) {
+    return {
+      ...result,
+      images: result.images.map((img: any) => ({
+        id: img.id,
+        url: img.url ? `[图片已生成: ${img.id}]` : undefined,
+        // 不包含 data 字段
+      })),
+      message: result.message || `已生成 ${result.images.length} 张图片`,
+    };
+  }
+
+  // 如果有 stylistOutput，简化其中的大字段
+  if (result.stylistOutput) {
+    return {
+      ...result,
+      stylistOutput: {
+        ...result.stylistOutput,
+        // 保留关键信息，截断过长的文本
+        outfitInstructEn: result.stylistOutput.outfitInstructEn?.substring(0, 500),
+        outfitInstructZh: result.stylistOutput.outfitInstructZh?.substring(0, 500),
+      },
+    };
+  }
+
+  return result;
 }
 
 /**
