@@ -111,8 +111,9 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
       let response;
       if (iteration === 0) {
         // 第一次迭代：发送用户消息
+        // sendMessage 接受 parts 数组或字符串
         console.log(`\n[Iteration ${iteration + 1}] Sending user message with ${currentParts.length} parts`);
-        response = await chat.sendMessage({ parts: currentParts });
+        response = await chat.sendMessage(currentParts);
       } else {
         // 后续迭代：sendMessage 已经被 functionResponse 调用了
         // 这里不应该再发送，而是在上一轮工具调用后已经得到了新的 response
@@ -211,14 +212,12 @@ export async function* runAgentStream(input: AgentInput): AsyncGenerator<StreamE
           
           // 发送工具响应 - SDK 自动处理 thought_signature
           console.log(`[Iteration ${iteration + 1}] Sending function response for ${functionCall.name}`);
-          const nextResponse = await chat.sendMessage({
-            parts: [{
-              functionResponse: {
-                name: functionCall.name,
-                response: toolResult,
-              },
-            }],
-          });
+          const nextResponse = await chat.sendMessage([{
+            functionResponse: {
+              name: functionCall.name,
+              response: toolResult,
+            },
+          }]);
           
           const nextCandidate = nextResponse.candidates?.[0];
           if (!nextCandidate) {
@@ -386,14 +385,12 @@ async function* processToolCalls(
     
     // 发送工具响应
     console.log(`[Depth ${depth}] Sending function response for ${functionCall.name}`);
-    const nextResponse = await chat.sendMessage({
-      parts: [{
-        functionResponse: {
-          name: functionCall.name,
-          response: toolResult,
-        },
-      }],
-    });
+    const nextResponse = await chat.sendMessage([{
+      functionResponse: {
+        name: functionCall.name,
+        response: toolResult,
+      },
+    }]);
     
     const nextCandidate = nextResponse.candidates?.[0];
     if (!nextCandidate) {
