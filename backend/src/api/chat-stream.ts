@@ -77,6 +77,8 @@ async function persistImage(id: string, base64Data: string, userId: string): Pro
     const uploadDir = path.join(process.cwd(), 'public/uploads');
     const filePath = path.join(uploadDir, filename);
 
+    // Ensure directory exists
+    await fs.mkdir(uploadDir, { recursive: true });
     await fs.writeFile(filePath, buffer);
 
     const publicUrl = `/api/chat/assets/${filename}`;
