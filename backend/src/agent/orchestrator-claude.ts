@@ -264,7 +264,7 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
             // Iterate over the stream
             for await (const event of stream) {
                 if (event.type === 'content_block_delta') {
-                    if (event.delta.type === 'thinking') {
+                    if (event.delta.type === 'thinking_delta') {
                         yield {
                             type: 'thinking',
                             data: { content: event.delta.thinking },
