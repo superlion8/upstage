@@ -77,21 +77,27 @@ struct InputBarView: View {
             .allowsHitTesting(!audioRecorder.isRecording)
             .overlay(
               Group {
-                // Voice Recording Trigger Layer (Only active when text is empty OR recording is in progress)
-                if (text.isEmpty || audioRecorder.isRecording) && !isLoading {
+                // Voice Recording Trigger Layer (Only active when text is empty AND not yet focused)
+                if text.isEmpty && !audioRecorder.isRecording && !isFocused && !isLoading {
                   Color.clear
                     .contentShape(RoundedRectangle(cornerRadius: 20))
-                    .highPriorityGesture(
-                      DragGesture(minimumDistance: 0)
+                    .gesture(
+                      LongPressGesture(minimumDuration: 0.15)
+                        .sequenced(before: DragGesture(minimumDistance: 0))
                         .onChanged { value in
-                          if !isLoading && !audioRecorder.isRecording {
-                            startVoiceRecording()
-                          }
-                          if audioRecorder.isRecording {
-                            handleDragChanged(value)
+                          switch value {
+                          case .second(true, let drag):
+                            if !audioRecorder.isRecording {
+                              startVoiceRecording()
+                            }
+                            if let drag = drag {
+                              handleDragChanged(drag)
+                            }
+                          default:
+                            break
                           }
                         }
-                        .onEnded { _ in
+                        .onEnded { value in
                           if audioRecorder.isRecording {
                             stopVoiceRecording()
                           }
