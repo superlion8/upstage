@@ -175,6 +175,16 @@ async function start() {
 
     log.info(`🚀 Server running at http://${config.server.host}:${config.server.port}`);
 
+    // Debug: log all env var names on startup
+    const allEnvVars = Object.keys(process.env).sort();
+    const anthropicRelated = allEnvVars.filter(k => k.includes('ANTHROPIC') || k.includes('CLAUDE'));
+    log.info('Environment variables loaded', {
+      totalCount: allEnvVars.length,
+      anthropicRelated: anthropicRelated,
+      hasAnthropicApiKey: allEnvVars.includes('ANTHROPIC_API_KEY'),
+      hasClaudeModel: allEnvVars.includes('CLAUDE_MODEL'),
+    });
+
     if (config.server.isDev) {
       log.info(`📚 API docs at http://localhost:${config.server.port}/docs`);
     }
