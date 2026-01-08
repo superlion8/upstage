@@ -259,6 +259,8 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                 messages,
             });
 
+            const toolUses: Array<{ id: string; name: string; input: any }> = [];
+
             // Iterate over the stream
             for await (const event of stream) {
                 if (event.type === 'content_block_delta') {
