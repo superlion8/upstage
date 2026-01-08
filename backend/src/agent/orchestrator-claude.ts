@@ -97,10 +97,62 @@ function getLeanResult(result: any): any {
 }
 
 // ============================================
+// Image Registry
+// ============================================
+
+/**
+ * Manages the mapping between simple user-friendly labels (image_1, image_2)
+ * and internal stable IDs or binary data.
+ */
+class ImageRegistry {
+    private labelToId = new Map<string, string>();
+    private idToLabel = new Map<string, string>();
+    private idToData = new Map<string, string>();
+    private counter = 0;
+
+    register(id: string, data: string, preferredLabel?: string) {
+        if (this.idToLabel.has(id)) {
+            return this.idToLabel.get(id)!;
+        }
+
+        this.counter++;
+        const label = preferredLabel || `image_${this.counter}`;
+        this.labelToId.set(label, id);
+        this.idToLabel.set(id, label);
+        this.idToData.set(id, data);
+        return label;
+    }
+
+    getLabel(id: string): string | undefined {
+        return this.idToLabel.get(id);
+    }
+
+    getId(label: string): string | undefined {
+        return this.labelToId.get(label);
+    }
+
+    getData(idOrLabel: string): string | undefined {
+        const id = this.getId(idOrLabel) || idOrLabel;
+        return this.idToData.get(id);
+    }
+
+    getSummary(): string {
+        const items = Array.from(this.labelToId.entries())
+            .map(([label, id]) => `- **${label}**: ID: ${id}`)
+            .join('\n');
+        return `### 图像注册表 (Image Registry)\n使用以下标签引用图片：\n${items}`;
+    }
+
+    getAllContext(): Record<string, string> {
+        return Object.fromEntries(this.idToData.entries());
+    }
+}
+
+// ============================================
 // Build Messages
 // ============================================
 
-function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] {
+function buildClaudeMessages(input: ClaudeAgentInput, registry: ImageRegistry): Anthropic.MessageParam[] {
     const messages: Anthropic.MessageParam[] = [];
 
     // Add conversation history (text only - no images to save tokens)
@@ -109,7 +161,8 @@ function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] 
             // For history, only include text (images are too large for context)
             let historyText = msg.content.text || '';
             if (msg.content.images && msg.content.images.length > 0) {
-                historyText = `[用户上传了 ${msg.content.images.length} 张图片] ` + historyText;
+                const labels = msg.content.images.map(img => registry.register(img.id, img.data));
+                historyText = `[用户在历史记录中上传了图片: ${labels.join(', ')}] ` + historyText;
             }
             if (historyText) {
                 messages.push({ role: 'user', content: historyText });
@@ -118,7 +171,8 @@ function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] 
             // Assistant messages - only text
             let assistantText = msg.content.text || '';
             if (msg.content.generatedImages && msg.content.generatedImages.length > 0) {
-                assistantText += ` [已生成 ${msg.content.generatedImages.length} 张图片]`;
+                const labels = msg.content.generatedImages.map(img => registry.register(img.id, img.url));
+                assistantText += ` [已生成图片: ${labels.join(', ')}]`;
             }
             if (assistantText) {
                 messages.push({ role: 'assistant', content: assistantText });
@@ -129,8 +183,8 @@ function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] 
     // Add current message
     const currentContent: Anthropic.ContentBlockParam[] = [];
 
-    // Add current images with ID info
-    const imageIds: string[] = [];
+    // Add current images with registry
+    const currentLabels: string[] = [];
     if (input.message.images) {
         for (const img of input.message.images) {
             const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
@@ -142,15 +196,18 @@ function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] 
                     data: base64Data,
                 },
             });
-            imageIds.push(img.id);
+            const label = registry.register(img.id, img.data);
+            currentLabels.push(label);
         }
     }
 
     // Add text with image registry info
     let textContent = '';
-    if (imageIds.length > 0) {
-        textContent += `[上传的图片 ID: ${imageIds.join(', ')}]\n\n`;
+    if (currentLabels.length > 0) {
+        textContent += `[当前上传的图片引用: ${currentLabels.join(', ')}]\n\n`;
     }
+    textContent += registry.getSummary() + '\n\n';
+
     if (input.message.text) {
         textContent += input.message.text;
     }
@@ -180,19 +237,10 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
     });
 
     const client = getAnthropicClient();
-    const model = config.ai.claude?.model || 'claude-sonnet-4-20250514';
+    const model = config.ai.claude?.model || 'claude-sonnet-4-5-20250929';
     const tools = getClaudeToolDefinitions();
-    let messages = buildClaudeMessages(input);
-
-    // Image context for tool execution
-    const imageContext: Record<string, string> = {};
-
-    // Add current images to context
-    if (input.message.images) {
-        for (const img of input.message.images) {
-            imageContext[img.id] = img.data;
-        }
-    }
+    const registry = new ImageRegistry();
+    let messages = buildClaudeMessages(input, registry);
 
     try {
         for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -261,16 +309,36 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                         throw new Error(`Unknown tool: ${toolUse.name}`);
                     }
 
-                    const result = await executor(toolUse.input, {
+                    // Resolve labels to actual IDs in tool input (recursively)
+                    const resolveLabels = (obj: any): any => {
+                        if (!obj || typeof obj !== 'object') return obj;
+                        if (Array.isArray(obj)) return obj.map(resolveLabels);
+
+                        const resolved: any = {};
+                        for (const key in obj) {
+                            if (typeof obj[key] === 'string' && obj[key].startsWith('image_')) {
+                                resolved[key] = registry.getId(obj[key]) || obj[key];
+                            } else if (typeof obj[key] === 'object') {
+                                resolved[key] = resolveLabels(obj[key]);
+                            } else {
+                                resolved[key] = obj[key];
+                            }
+                        }
+                        return resolved;
+                    };
+
+                    const resolvedInput = resolveLabels(toolUse.input);
+
+                    const result = await executor(resolvedInput, {
                         userId: input.userId,
                         conversationId: input.conversationId,
-                        imageContext,
+                        imageContext: registry.getAllContext(),
                     });
 
-                    // Update image context if tool generated images
+                    // Update registry if tool generated images
                     if (result.images) {
                         for (const img of result.images) {
-                            imageContext[img.id] = img.url || img.data;
+                            registry.register(img.id, img.url || img.data);
                             yield {
                                 type: 'image',
                                 data: { id: img.id, url: img.url },

@@ -11,6 +11,9 @@ import { eq, desc } from 'drizzle-orm';
 import { runClaudeAgentStream, type ClaudeAgentInput, type ConversationMessage } from '../agent/orchestrator-claude.js';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { assets as assetsTable } from '../db/schema.js';
 
 const logger = createLogger('api:chat-stream');
 
@@ -54,11 +57,73 @@ function sendSSE(reply: FastifyReply, event: string, data: any) {
   reply.raw.write(payload);
 }
 
+/**
+ * Save image to disk and return accessible URL
+ */
+async function persistImage(id: string, base64Data: string, userId: string): Promise<string> {
+  if (!base64Data || !base64Data.startsWith('data:')) {
+    return base64Data;
+  }
+
+  try {
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return base64Data;
+
+    const mimeType = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    const extension = mimeType.split('/')[1] || 'jpg';
+
+    const filename = `${id}.${extension}`;
+    const uploadDir = path.join(process.cwd(), 'public/uploads');
+    const filePath = path.join(uploadDir, filename);
+
+    await fs.writeFile(filePath, buffer);
+
+    const publicUrl = `/api/chat/assets/${filename}`;
+
+    // Also track in assets table
+    try {
+      await db.insert(assetsTable).values({
+        userId,
+        type: 'generated',
+        name: filename,
+        url: publicUrl,
+        mimeType: mimeType,
+        fileSize: buffer.length,
+      });
+    } catch (dbErr) {
+      logger.error('Failed to insert asset into DB', { error: dbErr.message });
+    }
+
+    return publicUrl;
+  } catch (error) {
+    logger.error('Failed to persist image', { error: error.message, id });
+    return base64Data;
+  }
+}
+
 // ============================================
 // Routes
 // ============================================
 
 export async function chatStreamRoutes(fastify: FastifyInstance) {
+
+  /**
+   * Serve generated assets
+   */
+  fastify.get('/assets/:filename', async (request, reply) => {
+    const { filename } = request.params;
+    const filePath = path.join(process.cwd(), 'public/uploads', filename);
+
+    try {
+      const buffer = await fs.readFile(filePath);
+      const ext = path.extname(filename).toLowerCase();
+      const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+      return reply.type(mimeType).send(buffer);
+    } catch (err) {
+      return reply.status(404).send({ error: 'File not found' });
+    }
+  });
 
   /**
    * Stream a message to the agent
@@ -153,31 +218,44 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       const stream = runClaudeAgentStream(agentInput);
 
       try {
-        for await (const event of stream) {
-          // Forward event to client
-          sendSSE(reply, event.type, event.data);
-
-          // Collect data
-          switch (event.type) {
-            case 'tool_result':
-              toolCalls.push({
-                tool: event.data.tool,
-                arguments: event.data.arguments,
-                result: event.data.result,
-                timestamp: new Date(),
-              });
-              if (event.data.result?.images) {
-                generatedImages.push(...event.data.result.images);
+        // Collect data
+        switch (event.type) {
+          case 'tool_result':
+            const leanResult = { ...event.data.result };
+            if (leanResult.images) {
+              // Persist images and replace with URLs
+              for (let i = 0; i < leanResult.images.length; i++) {
+                const img = leanResult.images[i];
+                const url = await persistImage(img.id, img.url || img.data, userId);
+                img.url = url;
+                delete img.data;
+                generatedImages.push({ id: img.id, url });
               }
-              break;
-            case 'text_delta':
-              finalText += event.data.delta;
-              break;
-            case 'image':
-              generatedImages.push(event.data);
-              break;
-          }
+            }
+
+            toolCalls.push({
+              tool: event.data.tool,
+              arguments: event.data.arguments,
+              result: leanResult,
+              timestamp: new Date(),
+            });
+            break;
+          case 'text_delta':
+            finalText += event.data.delta;
+            break;
+          case 'image':
+            const persistedUrl = await persistImage(event.data.id, event.data.url, userId);
+            const leanImage = { ...event.data, url: persistedUrl };
+            delete leanImage.data;
+            generatedImages.push(leanImage);
+
+            // Send modified event with URL
+            sendSSE(reply, event.type, leanImage);
+            continue; // Skip the default sendSSE below
         }
+
+        // Forward event to client (if not already handled)
+        sendSSE(reply, event.type, event.data);
       } finally {
         clearInterval(keepAlive);
       }
