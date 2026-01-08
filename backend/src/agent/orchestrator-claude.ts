@@ -111,7 +111,8 @@ function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] 
     // Add current message
     const currentContent: Anthropic.ContentBlockParam[] = [];
 
-    // Add current images
+    // Add current images with ID info
+    const imageIds: string[] = [];
     if (input.message.images) {
         for (const img of input.message.images) {
             const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
@@ -123,12 +124,20 @@ function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] 
                     data: base64Data,
                 },
             });
+            imageIds.push(img.id);
         }
     }
 
-    // Add current text
+    // Add text with image registry info
+    let textContent = '';
+    if (imageIds.length > 0) {
+        textContent += `[上传的图片 ID: ${imageIds.join(', ')}]\n\n`;
+    }
     if (input.message.text) {
-        currentContent.push({ type: 'text', text: input.message.text });
+        textContent += input.message.text;
+    }
+    if (textContent) {
+        currentContent.push({ type: 'text', text: textContent });
     }
 
     if (currentContent.length > 0) {
