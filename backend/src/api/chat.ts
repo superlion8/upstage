@@ -8,7 +8,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db, conversations, messages, users } from '../db/index.js';
 import { eq, desc } from 'drizzle-orm';
-import { runAgent, type AgentInput, type ConversationMessage } from '../agent/orchestrator.js';
+import { runClaudeAgent, type ClaudeAgentInput, type ConversationMessage } from '../agent/orchestrator-claude.js';
 import { createLogger } from '../lib/logger.js';
 import { nanoid } from 'nanoid';
 
@@ -65,7 +65,7 @@ const getMessagesSchema = z.object({
 // ============================================
 
 export async function chatRoutes(fastify: FastifyInstance) {
-  
+
   /**
    * Send a message to the agent
    * POST /api/chat/send
@@ -74,28 +74,28 @@ export async function chatRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const userId = request.user.id;
-    
+
     // 详细记录请求体结构
-    logger.info('Raw request body structure', { 
+    logger.info('Raw request body structure', {
       bodyKeys: Object.keys(request.body as object),
       hasImages: !!(request.body as any)?.images,
       imagesCount: (request.body as any)?.images?.length,
       firstImageKeys: (request.body as any)?.images?.[0] ? Object.keys((request.body as any).images[0]) : [],
     });
-    
+
     const body = sendMessageSchema.parse(request.body);
-    
-    logger.info('Parsed body', { 
+
+    logger.info('Parsed body', {
       hasConversationId: !!body.conversationId,
-      hasText: !!body.text, 
+      hasText: !!body.text,
       imageCount: body.images?.length || 0,
       firstImageId: body.images?.[0]?.id,
     });
-    
+
     try {
       // Get or create conversation
       let conversationId = body.conversationId;
-      
+
       if (!conversationId) {
         // Create new conversation
         logger.info('Creating new conversation', { userId, titlePreview: body.text?.slice(0, 20) });
@@ -106,17 +106,17 @@ export async function chatRoutes(fastify: FastifyInstance) {
         conversationId = newConversation.id;
         logger.info('Created new conversation', { conversationId });
       }
-      
+
       // Save user message
       const imageUrls = body.images?.map(img => img.data);
-      logger.info('Saving user message', { 
-        conversationId, 
+      logger.info('Saving user message', {
+        conversationId,
         hasText: !!body.text,
         imageUrlsCount: imageUrls?.length || 0,
         imageUrlsType: imageUrls ? typeof imageUrls : 'undefined',
         firstImageUrlLength: imageUrls?.[0]?.length,
       });
-      
+
       const [userMessage] = await db.insert(messages).values({
         conversationId,
         role: 'user',
@@ -124,16 +124,16 @@ export async function chatRoutes(fastify: FastifyInstance) {
         textContent: body.text,
         imageUrls: imageUrls,
       }).returning();
-      
+
       logger.info('User message saved', { messageId: userMessage.id });
-      
+
       // Get conversation history
       const historyMessages = await db.query.messages.findMany({
         where: eq(messages.conversationId, conversationId),
         orderBy: [desc(messages.createdAt)],
         limit: 20,
       });
-      
+
       // Convert to agent format
       const conversationHistory: ConversationMessage[] = historyMessages
         .reverse()
@@ -153,9 +153,9 @@ export async function chatRoutes(fastify: FastifyInstance) {
             })),
           },
         }));
-      
+
       // Run agent
-      const agentInput: AgentInput = {
+      const agentInput: ClaudeAgentInput = {
         userId,
         conversationId,
         message: {
@@ -164,22 +164,22 @@ export async function chatRoutes(fastify: FastifyInstance) {
         },
         conversationHistory,
       };
-      
+
       logger.info('Starting agent run...');
       const startTime = Date.now();
-      
+
       // 添加超时
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Agent timeout after 90s')), 90000);
       });
-      
+
       const agentOutput = await Promise.race([
-        runAgent(agentInput),
+        runClaudeAgent(agentInput),
         timeoutPromise,
       ]) as any;
-      
+
       logger.info('Agent completed', { duration: Date.now() - startTime });
-      
+
       // Save assistant message
       const [assistantMessage] = await db.insert(messages).values({
         conversationId,
@@ -190,14 +190,14 @@ export async function chatRoutes(fastify: FastifyInstance) {
         toolCalls: agentOutput.toolCalls,
         thinking: agentOutput.thinking,
       }).returning();
-      
+
       // Update conversation title if it's a new conversation
       if (!body.conversationId && body.text) {
         await db.update(conversations)
           .set({ title: body.text.slice(0, 50), updatedAt: new Date() })
           .where(eq(conversations.id, conversationId));
       }
-      
+
       // Check and update user quota
       // TODO: 正确实现配额追踪（目前暂时禁用，避免 [object Object] 错误）
       // if (agentOutput.toolCalls.some(tc => tc.result?.images)) {
@@ -208,7 +208,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
       //       .where(eq(users.id, userId));
       //   }
       // }
-      
+
       return reply.send({
         success: true,
         conversationId,
@@ -234,24 +234,24 @@ export async function chatRoutes(fastify: FastifyInstance) {
         })),
         thinking: agentOutput.thinking,
       });
-      
+
     } catch (error) {
       logger.error('Chat error', { error, userId });
-      
+
       // Update message status to failed
       if (body.conversationId) {
         await db.update(messages)
           .set({ status: 'failed' })
           .where(eq(messages.conversationId, body.conversationId));
       }
-      
+
       return reply.status(500).send({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });
-  
+
   /**
    * Get user's conversations
    * GET /api/chat/conversations
@@ -261,20 +261,20 @@ export async function chatRoutes(fastify: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const userId = request.user.id;
     const query = getConversationsSchema.parse(request.query);
-    
+
     const userConversations = await db.query.conversations.findMany({
       where: eq(conversations.userId, userId),
       orderBy: [desc(conversations.updatedAt)],
       limit: query.limit,
       offset: query.offset,
     });
-    
+
     return reply.send({
       success: true,
       conversations: userConversations,
     });
   });
-  
+
   /**
    * Get messages in a conversation
    * GET /api/chat/messages
@@ -284,26 +284,26 @@ export async function chatRoutes(fastify: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const userId = request.user.id;
     const query = getMessagesSchema.parse(request.query);
-    
+
     // Verify conversation belongs to user
     const conversation = await db.query.conversations.findFirst({
       where: eq(conversations.id, query.conversationId),
     });
-    
+
     if (!conversation || conversation.userId !== userId) {
       return reply.status(404).send({
         success: false,
         error: 'Conversation not found',
       });
     }
-    
+
     const conversationMessages = await db.query.messages.findMany({
       where: eq(messages.conversationId, query.conversationId),
       orderBy: [desc(messages.createdAt)],
       limit: query.limit,
       offset: query.offset,
     });
-    
+
     return reply.send({
       success: true,
       messages: conversationMessages.reverse().map(msg => ({
@@ -316,7 +316,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
       })),
     });
   });
-  
+
   /**
    * Delete a conversation
    * DELETE /api/chat/conversations/:id
@@ -326,21 +326,21 @@ export async function chatRoutes(fastify: FastifyInstance) {
   }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const userId = request.user.id;
     const conversationId = request.params.id;
-    
+
     // Verify conversation belongs to user
     const conversation = await db.query.conversations.findFirst({
       where: eq(conversations.id, conversationId),
     });
-    
+
     if (!conversation || conversation.userId !== userId) {
       return reply.status(404).send({
         success: false,
         error: 'Conversation not found',
       });
     }
-    
+
     await db.delete(conversations).where(eq(conversations.id, conversationId));
-    
+
     return reply.send({
       success: true,
     });

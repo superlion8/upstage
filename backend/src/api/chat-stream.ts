@@ -1,34 +1,24 @@
 // @ts-nocheck
 /**
  * Chat Streaming API
- * SSE endpoint for real-time agent responses
+ * SSE endpoint for real-time agent responses (Claude only)
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { db, conversations, messages, users } from '../db/index.js';
+import { db, conversations, messages } from '../db/index.js';
 import { eq, desc } from 'drizzle-orm';
-import { runAgentStream, type AgentInput, type ConversationMessage, type StreamEvent } from '../agent/orchestrator-stream.js';
-import { runClaudeAgentStream, type ClaudeAgentInput, type ClaudeStreamEvent } from '../agent/orchestrator-claude.js';
+import { runClaudeAgentStream, type ClaudeAgentInput, type ConversationMessage } from '../agent/orchestrator-claude.js';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('api:chat-stream');
 
-// Feature flag: use Claude orchestrator when ANTHROPIC_API_KEY is set
-const USE_CLAUDE_ORCHESTRATOR = config.ai.claude?.enabled ?? false;
-
-// Log orchestrator configuration on startup (with raw env check)
-const rawAnthropicKey = process.env.ANTHROPIC_API_KEY;
+// Log configuration on startup
 logger.info('Chat stream initialized', {
-  orchestrator: USE_CLAUDE_ORCHESTRATOR ? 'Claude' : 'Gemini',
-  claudeEnabled: config.ai.claude?.enabled,
+  orchestrator: 'Claude',
   claudeModel: config.ai.claude?.model,
   hasAnthropicKey: !!config.ai.claude?.apiKey,
-  // Debug: check raw env var
-  rawKeyExists: rawAnthropicKey !== undefined,
-  rawKeyLength: rawAnthropicKey?.length ?? 0,
-  rawKeyPrefix: rawAnthropicKey?.substring(0, 10) ?? 'N/A',
 });
 
 // ============================================
@@ -73,15 +63,6 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
   /**
    * Stream a message to the agent
    * POST /api/chat/stream
-   * 
-   * Returns SSE events:
-   * - thinking: Agent's thinking process
-   * - tool_start: Tool execution started
-   * - tool_result: Tool execution completed
-   * - text_delta: Incremental text response
-   * - image: Generated image
-   * - done: Stream completed
-   * - error: Error occurred
    */
   fastify.post('/stream', {
     preHandler: [fastify.authenticate],
@@ -96,7 +77,7 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no', // Disable nginx buffering
+      'X-Accel-Buffering': 'no',
     });
 
     try {
@@ -109,19 +90,17 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
           title: body.text?.slice(0, 50) || '新对话',
         }).returning();
         conversationId = newConversation.id;
-
-        // Send conversation ID immediately
         sendSSE(reply, 'conversation', { conversationId });
       }
 
       // Save user message
-      const [userMessage] = await db.insert(messages).values({
+      await db.insert(messages).values({
         conversationId,
         role: 'user',
         status: 'sent',
         textContent: body.text,
         imageUrls: body.images?.map(img => img.data),
-      }).returning();
+      });
 
       // Get conversation history
       const historyMessages = await db.query.messages.findMany({
@@ -142,11 +121,15 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
               data: url,
               mimeType: 'image/jpeg',
             })),
+            generatedImages: msg.generatedImageUrls?.map((url, i) => ({
+              id: `gen_${msg.id}_${i}`,
+              url,
+            })),
           },
         }));
 
       // Build agent input
-      const agentInput: AgentInput = {
+      const agentInput: ClaudeAgentInput = {
         userId,
         conversationId,
         message: {
@@ -158,16 +141,11 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
 
       // Collected data for saving
       const toolCalls: any[] = [];
-      let thinkingContent = '';
       let finalText = '';
       let generatedImages: any[] = [];
 
-      // Run agent with streaming (Claude or Gemini based on config)
-      logger.info('Using orchestrator', { orchestrator: USE_CLAUDE_ORCHESTRATOR ? 'Claude' : 'Gemini' });
-
-      const stream = USE_CLAUDE_ORCHESTRATOR
-        ? runClaudeAgentStream(agentInput as ClaudeAgentInput)
-        : runAgentStream(agentInput);
+      // Run Claude agent with streaming
+      const stream = runClaudeAgentStream(agentInput);
 
       for await (const event of stream) {
         // Forward event to client
@@ -175,9 +153,6 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
 
         // Collect data
         switch (event.type) {
-          case 'thinking':
-            thinkingContent += event.data.content + '\n';
-            break;
           case 'tool_result':
             toolCalls.push({
               tool: event.data.tool,
@@ -206,7 +181,6 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
         textContent: finalText,
         generatedImageUrls: generatedImages.map(img => img.url),
         toolCalls: toolCalls,
-        thinking: thinkingContent,
       }).returning();
 
       // Send done event
@@ -228,6 +202,3 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
     }
   });
 }
-
-
-
