@@ -62,71 +62,70 @@ struct InputBarView: View {
         }
         .disabled(isLoading || selectedImages.count >= 5 || audioRecorder.isRecording)
 
-        // Text input area (ZStack for stability)
-        ZStack {
-          // 1. Normal Text Field
-          // Becomes active/visible when typing or focused
-          TextField("发消息或按住说话...", text: $text, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(1...5)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .focused($isFocused)
-            .opacity(audioRecorder.isRecording ? 0 : (isFocused || !text.isEmpty ? 1 : 0))
-            .allowsHitTesting(!audioRecorder.isRecording)
+        // Text input area (ZStack/Overlay for stability)
+        TextField("发消息或按住说话...", text: $text, axis: .vertical)
+          .textFieldStyle(.plain)
+          .lineLimit(1...5)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 8)
+          .background(Color(.systemGray6))
+          .clipShape(RoundedRectangle(cornerRadius: 20))
+          .focused($isFocused)
+          .opacity(audioRecorder.isRecording ? 0 : 1)
+          .overlay(
+            Group {
+              // 2. Gesture Overlay Layer
+              // Handles Tap-to-Focus and Hold-to-Record.
+              // PERSISTENCE: It stays alive during recording so the gesture is not killed.
+              if (text.isEmpty && !isFocused) || audioRecorder.isRecording {
+                ZStack {
+                  RoundedRectangle(cornerRadius: 20)
+                    .fill(
+                      audioRecorder.isRecording
+                        ? (showCancelHint ? Color.red : Color.accentColor) : Color(.systemGray6))
 
-          // 2. Gesture Overlay Layer
-          // Handles Tap-to-Focus and Hold-to-Record.
-          // PERSISTENCE IS KEY: It stays alive during recording so the gesture is not killed.
-          if (text.isEmpty && !isFocused) || audioRecorder.isRecording {
-            RoundedRectangle(cornerRadius: 20)
-              .fill(
-                audioRecorder.isRecording
-                  ? (showCancelHint ? Color.red : Color.accentColor) : Color(.systemGray6)
-              )
-              .overlay(
-                HStack {
-                  if audioRecorder.isRecording {
-                    Image(systemName: "waveform")
-                      .foregroundColor(.white)
-                    Text(showCancelHint ? "松开取消" : "正在录音...上移取消")
-                      .font(.subheadline)
-                      .foregroundColor(.white)
-                  } else {
-                    Text("发消息或按住说话...")
-                      .foregroundColor(Color(.placeholderText))
-                      .padding(.leading, 12)
-                    Spacer()
+                  HStack {
+                    if audioRecorder.isRecording {
+                      Image(systemName: "waveform")
+                        .foregroundColor(.white)
+                      Text(showCancelHint ? "松开取消" : "正在录音...上移取消")
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                    } else {
+                      Text("发消息或按住说话...")
+                        .font(.body)
+                        .foregroundColor(Color(.placeholderText))
+                        .padding(.leading, 4)
+                      Spacer()
+                    }
+                  }
+                  .padding(.horizontal, 12)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 20))
+                .onTapGesture {
+                  if !audioRecorder.isRecording {
+                    isFocused = true
                   }
                 }
-              )
-              .frame(height: audioRecorder.isRecording ? 40 : nil)  // Fixed height for recording indicator
-              .contentShape(RoundedRectangle(cornerRadius: 20))
-              .onTapGesture {
-                if !audioRecorder.isRecording {
-                  isFocused = true
-                }
+                .gesture(
+                  DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                      if !isLoading && !audioRecorder.isRecording {
+                        startVoiceRecording()
+                      }
+                      if audioRecorder.isRecording {
+                        handleDragChanged(value)
+                      }
+                    }
+                    .onEnded { _ in
+                      if audioRecorder.isRecording {
+                        stopVoiceRecording()
+                      }
+                    }
+                )
               }
-              .gesture(
-                DragGesture(minimumDistance: 0)
-                  .onChanged { value in
-                    if !isLoading && !audioRecorder.isRecording {
-                      startVoiceRecording()
-                    }
-                    if audioRecorder.isRecording {
-                      handleDragChanged(value)
-                    }
-                  }
-                  .onEnded { _ in
-                    if audioRecorder.isRecording {
-                      stopVoiceRecording()
-                    }
-                  }
-              )
-          }
-        }
+            }
+          )
 
         // Voice / Send button
         ZStack {
