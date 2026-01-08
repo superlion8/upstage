@@ -41,3 +41,9 @@ coverage/
 
 
 
+# Build outputs
+ios/*.txt
+ios/*.log
+
+# Debug files
+test-*.ts
