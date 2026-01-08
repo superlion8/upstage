@@ -328,16 +328,21 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
           conversationId,
           messageId: assistantMessageId,
         });
+        isDisconnected = true; // Prevent heartbeat from writing after end
         reply.raw.end();
       }
     } catch (error) {
       logger.error('Stream error', { error, userId });
+      isDisconnected = true; // Prevent heartbeat from writing after end
 
-      sendSSE(reply, 'error', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-
-      reply.raw.end();
+      try {
+        sendSSE(reply, 'error', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+        reply.raw.end();
+      } catch (e) {
+        // Stream already closed, ignore
+      }
     }
   });
 }

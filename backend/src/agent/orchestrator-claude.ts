@@ -350,10 +350,12 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                     // Update registry if tool generated images
                     if (result.images) {
                         for (const img of result.images) {
-                            registry.register(img.id, img.url || img.data);
+                            // Always register base64 data (not URL) so subsequent tools can use it
+                            const dataToRegister = img.data || img.url;
+                            registry.register(img.id, dataToRegister);
                             yield {
                                 type: 'image',
-                                data: { id: img.id, url: img.url },
+                                data: { id: img.id, url: img.url, data: img.data },
                             };
                         }
                     }
