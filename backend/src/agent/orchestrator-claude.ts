@@ -72,39 +72,26 @@ function getClaudeToolDefinitions(): Anthropic.Tool[] {
 function buildClaudeMessages(input: ClaudeAgentInput): Anthropic.MessageParam[] {
     const messages: Anthropic.MessageParam[] = [];
 
-    // Add conversation history
-    for (const msg of input.conversationHistory.slice(-10)) {
+    // Add conversation history (text only - no images to save tokens)
+    for (const msg of input.conversationHistory.slice(-5)) {
         if (msg.role === 'user') {
-            const content: Anthropic.ContentBlockParam[] = [];
-
-            // Add images
-            if (msg.content.images) {
-                for (const img of msg.content.images) {
-                    const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
-                    content.push({
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: (img.mimeType || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-                            data: base64Data,
-                        },
-                    });
-                }
+            // For history, only include text (images are too large for context)
+            let historyText = msg.content.text || '';
+            if (msg.content.images && msg.content.images.length > 0) {
+                historyText = `[用户上传了 ${msg.content.images.length} 张图片] ` + historyText;
             }
-
-            // Add text
-            if (msg.content.text) {
-                content.push({ type: 'text', text: msg.content.text });
-            }
-
-            if (content.length > 0) {
-                messages.push({ role: 'user', content });
+            if (historyText) {
+                messages.push({ role: 'user', content: historyText });
             }
         } else {
-            messages.push({
-                role: 'assistant',
-                content: msg.content.text || '',
-            });
+            // Assistant messages - only text
+            let assistantText = msg.content.text || '';
+            if (msg.content.generatedImages && msg.content.generatedImages.length > 0) {
+                assistantText += ` [已生成 ${msg.content.generatedImages.length} 张图片]`;
+            }
+            if (assistantText) {
+                messages.push({ role: 'assistant', content: assistantText });
+            }
         }
     }
 
