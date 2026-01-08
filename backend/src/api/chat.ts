@@ -318,6 +318,57 @@ export async function chatRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * Get a single message status (Polling support)
+   * GET /api/chat/messages/:id
+   */
+  fastify.get('/messages/:id', {
+    preHandler: [fastify.authenticate],
+  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const userId = request.user.id;
+    const messageId = request.params.id;
+
+    const message = await db.query.messages.findFirst({
+      where: eq(messages.id, messageId),
+    });
+
+    if (!message) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Message not found',
+      });
+    }
+
+    // Verify conversation belongs to user
+    const conversation = await db.query.conversations.findFirst({
+      where: eq(conversations.id, message.conversationId),
+    });
+
+    if (!conversation || conversation.userId !== userId) {
+      return reply.status(403).send({
+        success: false,
+        error: 'Forbidden',
+      });
+    }
+
+    return reply.send({
+      success: true,
+      message: {
+        id: message.id,
+        role: message.role,
+        status: message.status,
+        text: message.textContent,
+        images: message.imageUrls,
+        generatedImages: message.generatedImageUrls?.map((url, i) => ({
+          id: `gen_${message.id}_${i}`,
+          url
+        })),
+        toolCalls: message.toolCalls,
+        createdAt: message.createdAt,
+      },
+    });
+  });
+
+  /**
    * Delete a conversation
    * DELETE /api/chat/conversations/:id
    */

@@ -211,10 +211,20 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       let finalText = '';
       let generatedImages: any[] = [];
 
-      // Heartbeat to keep connection alive during long tool calls
+      // Create assistant message placeholder immediately so it can be polled/updated
+      const [assistantMessage] = await db.insert(messages).values({
+        conversationId,
+        role: 'assistant',
+        status: 'generating',
+        textContent: '',
+      }).returning();
+      const assistantMessageId = assistantMessage.id;
+
+      // Heartbeat to keep connection alive during long tool calls (increased frequency to 5s)
       const keepAlive = setInterval(() => {
+        // Send a comment-style heartbeat which is standard in SSE
         reply.raw.write(': heartbeat\n\n');
-      }, 15000);
+      }, 5000);
 
       // Run Claude agent with streaming
       const stream = runClaudeAgentStream(agentInput);
@@ -259,25 +269,36 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
 
           // Forward event to client (if not already handled)
           sendSSE(reply, event.type, event.data);
+
+          // Real-time DB persistence (Incremental)
+          // We don't need to await these as they are side-effects to ensure persistence on disconnect
+          db.update(messages)
+            .set({
+              textContent: finalText,
+              generatedImageUrls: generatedImages.map(img => img.url),
+              toolCalls: toolCalls.map(tc => ({
+                tool: tc.tool,
+                args: tc.arguments,
+                result: tc.result
+              })),
+            })
+            .where(eq(messages.id, assistantMessageId))
+            .catch(err => logger.error('Incremental DB update failed', { error: err.message }));
         }
       } finally {
         clearInterval(keepAlive);
       }
 
-      // Save assistant message
-      const [assistantMessage] = await db.insert(messages).values({
-        conversationId,
-        role: 'assistant',
+      // Final update to set status to 'sent'
+      await db.update(messages).set({
         status: 'sent',
-        textContent: finalText,
-        generatedImageUrls: generatedImages.map(img => img.url),
-        toolCalls: toolCalls,
-      }).returning();
+        updatedAt: new Date(),
+      }).where(eq(messages.id, assistantMessageId));
 
       // Send done event
       sendSSE(reply, 'done', {
         conversationId,
-        messageId: assistantMessage.id,
+        messageId: assistantMessageId,
       });
 
       reply.raw.end();
