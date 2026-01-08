@@ -322,7 +322,7 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       // Final update to set status to 'sent'
       await syncToDb(true);
 
-      // Send done event
+      // Send done event and close stream
       if (!isDisconnected) {
         sendSSE(reply, 'done', {
           conversationId,
@@ -330,15 +330,6 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
         });
         reply.raw.end();
       }
-
-      // Send done event
-      sendSSE(reply, 'done', {
-        conversationId,
-        messageId: assistantMessageId,
-      });
-
-      reply.raw.end();
-
     } catch (error) {
       logger.error('Stream error', { error, userId });
 

@@ -319,15 +319,17 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                         throw new Error(`Unknown tool: ${toolUse.name}`);
                     }
 
-                    // Resolve labels to actual IDs in tool input (recursively)
+                    // Resolve labels to actual data in tool input (recursively)
                     const resolveLabels = (obj: any): any => {
                         if (!obj || typeof obj !== 'object') return obj;
                         if (Array.isArray(obj)) return obj.map(resolveLabels);
 
                         const resolved: any = {};
                         for (const key in obj) {
-                            if (typeof obj[key] === 'string' && obj[key].startsWith('image_')) {
-                                resolved[key] = registry.getId(obj[key]) || obj[key];
+                            if (typeof obj[key] === 'string') {
+                                // Resolve label (image_1) or ID to raw data from registry
+                                const data = registry.getData(obj[key]);
+                                resolved[key] = data || obj[key];
                             } else if (typeof obj[key] === 'object') {
                                 resolved[key] = resolveLabels(obj[key]);
                             } else {
