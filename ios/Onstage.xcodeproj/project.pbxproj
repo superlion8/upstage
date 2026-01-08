@@ -686,7 +686,9 @@
 			<key>buildActionMask</key>
 			<string>2147483647</string>
 			<key>files</key>
-			<array/>
+			<array>
+				<string>MARKDOWNUI_BUILDFILE</string>
+			</array>
 			<key>isa</key>
 			<string>PBXFrameworksBuildPhase</string>
 			<key>runOnlyForDeploymentPostprocessing</key>
@@ -1625,6 +1627,13 @@
 			<string>XCBuildConfiguration</string>
 			<key>name</key>
 			<string>Release</string>
+		</dict>
+		<key>MARKDOWNUI_BUILDFILE</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>productRef</key>
+			<string>MARKDOWNUI_PROD_DEP</string>
 		</dict>
 		<key>MARKDOWNUI_PKG_REF</key>
 		<dict>
