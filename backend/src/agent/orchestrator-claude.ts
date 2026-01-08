@@ -171,34 +171,35 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
         for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
             logger.info(`Claude iteration ${iteration + 1}/${MAX_ITERATIONS}`);
 
-            // Create message with streaming
-            const stream = client.messages.stream({
+            // Create message with extended thinking
+            const response = await client.messages.create({
                 model,
-                max_tokens: 4096,
-                system: AGENT_SYSTEM_PROMPT,
+                max_tokens: 16000,
+                thinking: {
+                    type: 'enabled',
+                    budget_tokens: 8000,
+                },
+                system: AGENT_SYSTEM_PROMPT + '\n\n## 回复格式\n请使用 Markdown 格式回复，包括标题、列表、粗体等，让回复更加清晰美观。',
                 tools,
                 messages,
             });
 
-            let fullText = '';
             const toolUses: Array<{ id: string; name: string; input: any }> = [];
-
-            // Stream text deltas
-            stream.on('text', (text) => {
-                fullText += text;
-            });
-
-            // Wait for the full message
-            const response = await stream.finalMessage();
 
             logger.info('Claude response received', {
                 stopReason: response.stop_reason,
                 contentBlocks: response.content.length,
             });
 
-            // Process response content
+            // Process response content - extract thinking and text
             for (const block of response.content) {
-                if (block.type === 'text') {
+                if (block.type === 'thinking') {
+                    // Emit thinking content
+                    yield {
+                        type: 'thinking',
+                        data: { content: block.thinking },
+                    };
+                } else if (block.type === 'text') {
                     yield {
                         type: 'text_delta',
                         data: { delta: block.text },
