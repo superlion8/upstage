@@ -52,6 +52,9 @@ import {
 } from './scrapers.js';
 
 import { z } from 'zod';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('agent:tools');
 
 // ============================================
 // Zod Schemas for Tool Parameter Validation
