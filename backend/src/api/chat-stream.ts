@@ -18,6 +18,14 @@ const logger = createLogger('api:chat-stream');
 // Feature flag: use Claude orchestrator when ANTHROPIC_API_KEY is set
 const USE_CLAUDE_ORCHESTRATOR = config.ai.claude?.enabled ?? false;
 
+// Log orchestrator configuration on startup
+logger.info('Chat stream initialized', {
+  orchestrator: USE_CLAUDE_ORCHESTRATOR ? 'Claude' : 'Gemini',
+  claudeEnabled: config.ai.claude?.enabled,
+  claudeModel: config.ai.claude?.model,
+  hasAnthropicKey: !!config.ai.claude?.apiKey,
+});
+
 // ============================================
 // Schemas
 // ============================================
