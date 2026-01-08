@@ -31,6 +31,10 @@ const envSchema = z.object({
   SORA_API_KEY: z.string().optional(),
   SORA_MODEL: z.string().default('sora-2'),
 
+  // Claude / Anthropic AI
+  ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_MODEL: z.string().default('claude-sonnet-4-20250514'),
+
   // Models
   THINKING_MODEL: z.string().default('gemini-3-flash-preview'),
   STYLIST_MODEL: z.string().default('gemini-3-flash-preview'),
@@ -108,6 +112,11 @@ export const config = {
     sora: {
       apiKey: env.SORA_API_KEY || env.GEMINI_API_KEY, // Fallback if applicable or separate
       model: env.SORA_MODEL,
+    },
+    claude: {
+      apiKey: env.ANTHROPIC_API_KEY || null,
+      model: env.CLAUDE_MODEL,
+      enabled: !!env.ANTHROPIC_API_KEY,
     },
   },
 
