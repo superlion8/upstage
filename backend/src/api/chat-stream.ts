@@ -264,7 +264,8 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
 
       try {
         for await (const event of stream) {
-          if (isDisconnected) break;
+          // Do NOT break loop on disconnect, continue processing in background
+          // if (isDisconnected) break;
 
           // Collect data
           switch (event.type) {
@@ -302,13 +303,17 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
               generatedImages.push(leanImage);
               hasPendingChanges = true;
 
-              // Send modified event with URL
-              sendSSE(reply, event.type, leanImage);
+              // Send modified event with URL (only if connected)
+              if (!isDisconnected) {
+                sendSSE(reply, event.type, leanImage);
+              }
               continue; // Skip the default sendSSE below
           }
 
-          // Forward event to client (if not already handled)
-          sendSSE(reply, event.type, event.data);
+          // Forward event to client (if not already handled and connected)
+          if (!isDisconnected) {
+            sendSSE(reply, event.type, event.data);
+          }
 
           // Throttled DB persistence (every 2 seconds if changes pending)
           if (hasPendingChanges && Date.now() - lastDbUpdateTime > 2000) {

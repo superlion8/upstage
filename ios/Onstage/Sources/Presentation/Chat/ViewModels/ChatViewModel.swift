@@ -124,6 +124,9 @@ final class ChatViewModel: ObservableObject {
     // App came back to foreground - reload conversations in case they were updated
     Task {
       await loadConversations()
+      if currentConversationId != nil {
+        await loadMessages()
+      }
     }
   }
 
