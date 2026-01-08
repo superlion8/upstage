@@ -41,6 +41,7 @@
 		A1000020 /* SSEClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* SSEClient.swift */; };
 		A1000021 /* BrandOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000021 /* BrandOnboardingView.swift */; };
 		A1000022 /* OnboardingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000022 /* OnboardingService.swift */; };
+		A1000030 /* AudioRecorderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000030 /* AudioRecorderManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -92,6 +93,7 @@
 		B1000020 /* SSEClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEClient.swift; sourceTree = "<group>"; };
 		B1000021 /* BrandOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandOnboardingView.swift; sourceTree = "<group>"; };
 		B1000022 /* OnboardingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingService.swift; sourceTree = "<group>"; };
+		B1000030 /* AudioRecorderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorderManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +164,7 @@
 			isa = PBXGroup;
 			children = (
 				D1000009 /* Network */,
+				D1000030 /* Audio */,
 				D100000A /* Local */,
 				D100000B /* Repositories */,
 			);
@@ -209,6 +212,14 @@
 				B1000020 /* SSEClient.swift */,
 			);
 			path = Network;
+			sourceTree = "<group>";
+		};
+		D1000030 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				B1000030 /* AudioRecorderManager.swift */,
+			);
+			path = Audio;
 			sourceTree = "<group>";
 		};
 		D100000A /* Local */ = {
@@ -466,6 +477,7 @@
 				A1000012 /* ShootRoomViewModel.swift in Sources */,
 				A1000013 /* SceneCanvasView.swift in Sources */,
 				A1000014 /* AssetsView.swift in Sources */,
+				A1000030 /* AudioRecorderManager.swift in Sources */,
 				A1000015 /* AssetsViewModel.swift in Sources */,
 				A1000016 /* ProfileView.swift in Sources */,
 				A1000017 /* ProfileViewModel.swift in Sources */,
@@ -610,7 +622,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄商品图片";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于语音输入消息";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择商品和参考图片";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "用于将语音转换为文字";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -640,7 +654,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄商品图片";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于语音输入消息";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择商品和参考图片";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "用于将语音转换为文字";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
