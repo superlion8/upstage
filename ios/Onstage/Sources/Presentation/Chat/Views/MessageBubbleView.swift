@@ -55,8 +55,7 @@ struct MessageBubbleView: View {
 
         // Text content (Markdown supported)
         if let text = message.content.text, !text.isEmpty {
-          Markdown(text)
-            .markdownTheme(.messageTheme(isUser: isUser))
+          MarkdownContentView(text: text, isUser: isUser)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(isUser ? Color.accentColor : Color(.systemGray6))
