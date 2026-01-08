@@ -55,8 +55,8 @@ struct ChatView: View {
           ScrollViewReader { proxy in
             ScrollView {
               LazyVStack(spacing: 24) {
-                ForEach(viewModel.messages) { message in
-                  MessageBubbleView(message: message)
+                ForEach($viewModel.messages) { $message in
+                  MessageBubbleView(message: $message)
                     .id(message.id)
                 }
 

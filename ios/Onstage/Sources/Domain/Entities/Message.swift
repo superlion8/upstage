@@ -36,20 +36,39 @@ struct MessageContent: Codable, Equatable {
 struct AgentStep: Identifiable, Codable, Equatable {
   let id: UUID
   let type: StepType
-  let tool: String?
-  let arguments: [String: AnyCodable]?
-  let result: StepResult?
+  var tool: String?
+  var arguments: [String: AnyCodable]?
+  var result: StepResult?
   let timestamp: Date
 
   enum StepType: String, Codable {
     case thinking
     case toolCall = "tool_call"
     case toolResult = "tool_result"
+    case plan
   }
 
+  enum StepStatus: String, Codable {
+    case pending
+    case running
+    case success
+    case failed
+  }
+
+  var status: StepStatus
+  var description: String?  // "What I'm doing"
+  var input: String?  // JSON or text input
+  var output: String?  // Streaming logs
+  var isExpanded: Bool? = false  // UI state
+
   init(
-    id: UUID = UUID(), type: StepType, tool: String? = nil, arguments: [String: AnyCodable]? = nil,
-    result: StepResult? = nil, timestamp: Date = Date()
+    id: UUID = UUID(),
+    type: StepType,
+    tool: String? = nil,
+    arguments: [String: AnyCodable]? = nil,
+    result: StepResult? = nil,
+    timestamp: Date = Date(),
+    status: StepStatus = .success
   ) {
     self.id = id
     self.type = type
@@ -57,6 +76,8 @@ struct AgentStep: Identifiable, Codable, Equatable {
     self.arguments = arguments
     self.result = result
     self.timestamp = timestamp
+    self.status = status
+    self.isExpanded = false
   }
 }
 

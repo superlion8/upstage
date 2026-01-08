@@ -94,7 +94,9 @@ final class ChatViewModel: ObservableObject {
       object: nil,
       queue: .main
     ) { [weak self] _ in
-      self?.handleAppDidBecomeActive()
+      Task { @MainActor [weak self] in
+        self?.handleAppDidBecomeActive()
+      }
     }
   }
 
@@ -301,42 +303,18 @@ final class ChatViewModel: ObservableObject {
     case .thinking:
       if let content = event.thinkingContent {
         streamingThinking += content
-        updateStreamingMessageContent(id: messageId)
+        updateThinkingStep(content: content, messageId: messageId)
       }
 
     case .toolStart:
-      let step = AgentStep(
-        id: UUID(),
-        type: .toolCall,
-        tool: event.toolName,
-        arguments: event.arguments?.mapValues { AnyCodable($0) },
-        result: nil,
-        timestamp: Date()
+      startToolStep(
+        tool: event.toolName ?? "Unknown Tool",  // Fix optional
+        args: event.arguments,
+        messageId: messageId
       )
-      streamingSteps.append(step)
-      updateStreamingMessageContent(id: messageId)
 
     case .toolResult:
-      // Update the last step with result
-      if var lastStep = streamingSteps.last {
-        let result = event.toolResult
-        lastStep = AgentStep(
-          id: lastStep.id,
-          type: .toolCall,
-          tool: lastStep.tool,
-          arguments: lastStep.arguments,
-          result: StepResult(
-            success: result?["success"] as? Bool ?? true,
-            message: result?["message"] as? String,
-            hasImages: result?["hasImages"] as? Bool
-          ),
-          timestamp: lastStep.timestamp
-        )
-        if !streamingSteps.isEmpty {
-          streamingSteps[streamingSteps.count - 1] = lastStep
-        }
-      }
-      updateStreamingMessageContent(id: messageId)
+      finishToolStep(result: event.toolResult, messageId: messageId)
 
     case .textDelta:
       if let delta = event.textDelta {
@@ -368,6 +346,95 @@ final class ChatViewModel: ObservableObject {
     }
   }
 
+  // MARK: - Step Management Helpers
+
+  private func updateThinkingStep(content: String, messageId: UUID) {
+    // If last step is thinking, append. Else create new.
+    if let lastIndex = streamingSteps.indices.last, streamingSteps[lastIndex].type == .thinking {
+      streamingSteps[lastIndex].output = (streamingSteps[lastIndex].output ?? "") + content
+    } else {
+      // Close previous running step
+      closeLastStep()
+
+      let step = AgentStep(
+        id: UUID(),
+        type: .thinking,
+        tool: nil,
+        arguments: nil,
+        result: nil,
+        timestamp: Date(),
+        status: .running
+      )
+      var newStep = step
+      newStep.output = content
+      newStep.isExpanded = true
+      streamingSteps.append(newStep)
+    }
+    updateStreamingMessageContent(id: messageId)
+  }
+
+  private func startToolStep(tool: String, args: [String: Any]?, messageId: UUID) {
+    closeLastStep()
+
+    let argsCodable = args?.mapValues { AnyCodable($0) }
+    var step = AgentStep(
+      id: UUID(),
+      type: .toolCall,
+      tool: tool,
+      arguments: argsCodable,
+      result: nil,
+      timestamp: Date(),
+      status: .running
+    )
+    step.isExpanded = true
+    step.description = "Executing \(tool)..."
+    step.input = args?.description  // Simple string rep for now
+
+    streamingSteps.append(step)
+    updateStreamingMessageContent(id: messageId)
+  }
+
+  private func finishToolStep(result: [String: Any]?, messageId: UUID) {
+    guard let index = streamingSteps.indices.last, streamingSteps[index].status == .running else {
+      return
+    }
+
+    var step = streamingSteps[index]
+    let success = result?["success"] as? Bool ?? true
+    let message = result?["message"] as? String
+    let hasImages = result?["hasImages"] as? Bool
+
+    step.status = success ? .success : .failed
+    step.result = StepResult(success: success, message: message, hasImages: hasImages)
+
+    // Auto-collapse after delay (UI handled via isExpanded, but we set it false here delayed?)
+    // Actually, let's keep it expanded until next step or final done,
+    // OR we can spawn a task to close it.
+    // User requested: "wait 800ms -> collapse".
+    // We will do this via a Task.
+
+    streamingSteps[index] = step
+    updateStreamingMessageContent(id: messageId)
+
+    Task {
+      try? await Task.sleep(nanoseconds: 800_000_000)
+      // Check if still valid index and same step
+      await MainActor.run {
+        if self.streamingSteps.indices.contains(index), self.streamingSteps[index].id == step.id {
+          self.streamingSteps[index].isExpanded = false
+          self.updateStreamingMessageContent(id: messageId)
+        }
+      }
+    }
+  }
+
+  private func closeLastStep() {
+    if let index = streamingSteps.indices.last, streamingSteps[index].status == .running {
+      streamingSteps[index].status = .success  // Assume success if moved on? Or generic done
+      streamingSteps[index].isExpanded = false
+    }
+  }
+
   private func updateStreamingMessageContent(id: UUID) {
     guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
 
@@ -388,8 +455,10 @@ final class ChatViewModel: ObservableObject {
   }
 
   private func finalizeStreamingMessage(id: UUID) {
+    closeLastStep()
     guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
     messages[index].status = .sent
+    updateStreamingMessageContent(id: id)  // Make sure steps are synced
     isLoading = false
   }
 
