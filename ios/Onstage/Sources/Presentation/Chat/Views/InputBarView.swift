@@ -62,40 +62,38 @@ struct InputBarView: View {
         }
         .disabled(isLoading || selectedImages.count >= 5 || audioRecorder.isRecording)
 
-        // Text input or Recording indicator
+        // Text input area (ZStack for stability)
         ZStack {
-          if !audioRecorder.isRecording {
-            TextField("发消息或按住说话...", text: $text, axis: .vertical)
-              .textFieldStyle(.plain)
-              .lineLimit(1...5)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 8)
-              .background(Color(.systemGray6))
-              .clipShape(RoundedRectangle(cornerRadius: 20))
-              .focused($isFocused)
-              .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.2)
-                  .onEnded { _ in
-                    if text.isEmpty && !isLoading {
-                      startVoiceRecording()
-                    }
+          // Normal Text Field
+          TextField("发消息或按住说话...", text: $text, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(1...5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .focused($isFocused)
+            .opacity(audioRecorder.isRecording ? 0 : 1)
+            .allowsHitTesting(!audioRecorder.isRecording)
+            .highPriorityGesture(
+              DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                  if text.isEmpty && !isLoading && !audioRecorder.isRecording {
+                    startVoiceRecording()
                   }
-              )
-              .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                  .onChanged { value in
-                    if audioRecorder.isRecording {
-                      handleDragChanged(value)
-                    }
+                  if audioRecorder.isRecording {
+                    handleDragChanged(value)
                   }
-                  .onEnded { _ in
-                    if audioRecorder.isRecording {
-                      stopVoiceRecording()
-                    }
+                }
+                .onEnded { _ in
+                  if audioRecorder.isRecording {
+                    stopVoiceRecording()
                   }
-              )
-          } else {
-            // Voice recording status bar
+                }
+            )
+
+          // Recording Indicator (Overlaid for stability)
+          if audioRecorder.isRecording {
             RoundedRectangle(cornerRadius: 20)
               .fill(showCancelHint ? Color.red : Color.accentColor)
               .frame(height: 40)
@@ -108,50 +106,55 @@ struct InputBarView: View {
                     .foregroundColor(.white)
                 }
               )
+              .allowsHitTesting(false)  // Let gestures pass through or handle here
           }
         }
 
         // Voice / Send button
-        Button {
+        ZStack {
           if canSend {
-            onSend()
-            isFocused = false
+            Button {
+              onSend()
+              isFocused = false
+            } label: {
+              Image(systemName: "arrow.up.circle.fill")
+                .font(.title)
+                .foregroundColor(.accentColor)
+            }
+            .transition(.scale)
+          } else {
+            Image(systemName: "mic.circle.fill")
+              .font(.title)
+              .foregroundColor(!isLoading ? .accentColor : .gray)
+              .padding(4)
+              .contentShape(Rectangle())
+              .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                  .onChanged { value in
+                    if !isLoading && !audioRecorder.isRecording {
+                      startVoiceRecording()
+                    }
+                    if audioRecorder.isRecording {
+                      handleDragChanged(value)
+                    }
+                  }
+                  .onEnded { _ in
+                    if audioRecorder.isRecording {
+                      stopVoiceRecording()
+                    }
+                  }
+              )
+              .transition(.scale)
           }
-        } label: {
-          Image(systemName: canSend ? "arrow.up.circle.fill" : "mic.circle.fill")
-            .font(.title)
-            .foregroundColor(canSend || !isLoading ? .accentColor : .gray)
-            .padding(4)
-            .contentShape(Rectangle())
         }
+        .frame(width: 44, height: 44)
         .disabled(isLoading)
-        .simultaneousGesture(
-          LongPressGesture(minimumDuration: 0.1)
-            .onEnded { _ in
-              if !canSend && !isLoading {
-                startVoiceRecording()
-              }
-            }
-        )
-        .simultaneousGesture(
-          DragGesture(minimumDistance: 0)
-            .onChanged { value in
-              if audioRecorder.isRecording {
-                handleDragChanged(value)
-              }
-            }
-            .onEnded { value in
-              if audioRecorder.isRecording {
-                stopVoiceRecording()
-              }
-            }
-        )
       }
       .padding(.horizontal)
       .padding(.vertical, 12)
     }
     .background(Color(.systemBackground))
-    .animation(.easeInOut(duration: 0.2), value: audioRecorder.isRecording)
+    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: audioRecorder.isRecording)
   }
 
   private var canSend: Bool {
