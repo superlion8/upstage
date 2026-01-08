@@ -64,7 +64,8 @@ struct InputBarView: View {
 
         // Text input area (ZStack for stability)
         ZStack {
-          // Normal Text Field
+          // 1. Normal Text Field
+          // Becomes active/visible when typing or focused
           TextField("发消息或按住说话...", text: $text, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(1...5)
@@ -73,55 +74,57 @@ struct InputBarView: View {
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .focused($isFocused)
-            .opacity(audioRecorder.isRecording ? 0 : 1)
+            .opacity(audioRecorder.isRecording ? 0 : (isFocused || !text.isEmpty ? 1 : 0))
             .allowsHitTesting(!audioRecorder.isRecording)
-            .overlay(
-              Group {
-                // Voice Recording Trigger Layer (Only active when text is empty AND not yet focused)
-                if text.isEmpty && !audioRecorder.isRecording && !isFocused && !isLoading {
-                  Color.clear
-                    .contentShape(RoundedRectangle(cornerRadius: 20))
-                    .gesture(
-                      LongPressGesture(minimumDuration: 0.15)
-                        .sequenced(before: DragGesture(minimumDistance: 0))
-                        .onChanged { value in
-                          switch value {
-                          case .second(true, let drag):
-                            if !audioRecorder.isRecording {
-                              startVoiceRecording()
-                            }
-                            if let drag = drag {
-                              handleDragChanged(drag)
-                            }
-                          default:
-                            break
-                          }
-                        }
-                        .onEnded { value in
-                          if audioRecorder.isRecording {
-                            stopVoiceRecording()
-                          }
-                        }
-                    )
-                }
-              }
-            )
 
-          // Recording Indicator (Overlaid for stability)
-          if audioRecorder.isRecording {
+          // 2. Gesture Overlay Layer
+          // Handles Tap-to-Focus and Hold-to-Record.
+          // PERSISTENCE IS KEY: It stays alive during recording so the gesture is not killed.
+          if (text.isEmpty && !isFocused) || audioRecorder.isRecording {
             RoundedRectangle(cornerRadius: 20)
-              .fill(showCancelHint ? Color.red : Color.accentColor)
-              .frame(height: 40)
+              .fill(
+                audioRecorder.isRecording
+                  ? (showCancelHint ? Color.red : Color.accentColor) : Color(.systemGray6)
+              )
               .overlay(
                 HStack {
-                  Image(systemName: "waveform")
-                    .foregroundColor(.white)
-                  Text(showCancelHint ? "松开取消" : "正在录音...上移取消")
-                    .font(.subheadline)
-                    .foregroundColor(.white)
+                  if audioRecorder.isRecording {
+                    Image(systemName: "waveform")
+                      .foregroundColor(.white)
+                    Text(showCancelHint ? "松开取消" : "正在录音...上移取消")
+                      .font(.subheadline)
+                      .foregroundColor(.white)
+                  } else {
+                    Text("发消息或按住说话...")
+                      .foregroundColor(Color(.placeholderText))
+                      .padding(.leading, 12)
+                    Spacer()
+                  }
                 }
               )
-              .allowsHitTesting(false)
+              .frame(height: audioRecorder.isRecording ? 40 : nil)  // Fixed height for recording indicator
+              .contentShape(RoundedRectangle(cornerRadius: 20))
+              .onTapGesture {
+                if !audioRecorder.isRecording {
+                  isFocused = true
+                }
+              }
+              .gesture(
+                DragGesture(minimumDistance: 0)
+                  .onChanged { value in
+                    if !isLoading && !audioRecorder.isRecording {
+                      startVoiceRecording()
+                    }
+                    if audioRecorder.isRecording {
+                      handleDragChanged(value)
+                    }
+                  }
+                  .onEnded { _ in
+                    if audioRecorder.isRecording {
+                      stopVoiceRecording()
+                    }
+                  }
+              )
           }
         }
 
@@ -143,7 +146,7 @@ struct InputBarView: View {
               .foregroundColor(!isLoading ? .accentColor : .gray)
               .padding(4)
               .contentShape(Rectangle())
-              .highPriorityGesture(
+              .gesture(
                 DragGesture(minimumDistance: 0)
                   .onChanged { value in
                     if !isLoading && !audioRecorder.isRecording {
