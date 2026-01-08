@@ -55,10 +55,13 @@ const getMessagesSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
   offset: z.coerce.number().min(0).default(0),
 }).transform(data => ({
-  conversationId: data.conversationId || data.conversation_id || '',
+  conversationId: data.conversationId || data.conversation_id,
   limit: data.limit,
   offset: data.offset,
-}));
+})).refine(data => !!data.conversationId, {
+  message: "conversationId is required",
+  path: ["conversationId"]
+});
 
 // ============================================
 // Routes
