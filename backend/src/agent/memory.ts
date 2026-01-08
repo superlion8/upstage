@@ -102,7 +102,7 @@ ${lines.map(line => `- ${line}`).join('\n')}
                         // 同步到 context，方便工具使用 (如果有 data)
                         if ((img as any).data) {
                             imageContext[img.id] = (img as any).data;
-                        } else if ((img as any).url && (img as any).url.startsWith('data:')) {
+                        } else if ((img as any).url) {
                             imageContext[img.id] = (img as any).url;
                         }
 
@@ -162,7 +162,7 @@ ${lines.map(line => `- ${line}`).join('\n')}
             for (let i = 0; i < input.message.images.length; i++) {
                 const img = input.message.images[i];
                 const imageId = img.id || `image_${Date.now()}_${i}`;
-                imageContext[imageId] = img.data;
+                imageContext[imageId] = (img as any).data || (img as any).url;
 
                 if (!imageRegistry.find(r => r.id === imageId)) {
                     imageRegistry.push({ id: imageId, desc: '当前上传' });
