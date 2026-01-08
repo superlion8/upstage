@@ -189,10 +189,6 @@ struct InputBarView: View {
       let transcribedText = audioRecorder.stopRecording()
       if !transcribedText.isEmpty {
         text = transcribedText
-        // Auto send if we got text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          onSend()
-        }
       }
     }
 
