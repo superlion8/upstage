@@ -143,15 +143,33 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
     };
 
     try {
+        logger.info('Creating Claude query', { promptLength: prompt.length, model: options.model });
         const q = query({ prompt, options });
 
+        let messageCount = 0;
         for await (const message of q) {
+            messageCount++;
+            // Debug: log raw SDK message structure
+            logger.info('Claude SDK message received', {
+                messageCount,
+                messageType: typeof message,
+                hasSubtype: 'subtype' in message,
+                subtype: (message as any).subtype,
+                keys: Object.keys(message),
+                rawPreview: JSON.stringify(message).substring(0, 500),
+            });
+
             // Convert SDK message to our event format
             const event = convertSdkMessage(message);
             if (event) {
+                logger.info('Converted to event', { eventType: event.type });
                 yield event;
+            } else {
+                logger.info('Message not converted to event');
             }
         }
+
+        logger.info('Claude query completed', { totalMessages: messageCount });
 
         // Send done event
         yield {
