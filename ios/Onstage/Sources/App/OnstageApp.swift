@@ -8,6 +8,7 @@ struct OnstageApp: App {
     WindowGroup {
       ContentView()
         .environmentObject(appState)
+        .preferredColorScheme(.dark)
     }
   }
 }
