@@ -736,7 +736,13 @@ function resolveImageRef(ref: string, imageContext: Record<string, string>): str
     return ref;
   }
 
-  throw new Error(`Unknown image reference: ${ref}`);
+  // 如果是原始 base64 数据 (JPEG/PNG 等)，直接返回
+  // JPEG base64 starts with /9j/, PNG starts with iVBOR
+  if (ref.startsWith('/9j/') || ref.startsWith('iVBOR') || ref.length > 1000) {
+    return ref;
+  }
+
+  throw new Error(`Unknown image reference: ${ref.substring(0, 50)}...`);
 }
 
 /**
