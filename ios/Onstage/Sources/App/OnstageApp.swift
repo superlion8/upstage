@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit  // Added for semantic colors
 
 @main
 struct OnstageApp: App {
@@ -8,7 +9,7 @@ struct OnstageApp: App {
     WindowGroup {
       ContentView()
         .environmentObject(appState)
-        .preferredColorScheme(.dark)
+      // .preferredColorScheme(.dark) // Removed to follow system appearance
     }
   }
 }
@@ -55,21 +56,21 @@ struct Theme {
   // MARK: - Colors
 
   struct Colors {
-    // Backgrounds
-    static let bg0 = Color(hex: "0B0B0D")
-    static let bg1 = Color(hex: "101014")
+    // Backgrounds (Semantic)
+    static let bg0 = Color(UIColor.systemBackground)
+    static let bg1 = Color(UIColor.secondarySystemBackground)
 
-    // Surfaces (White with Alpha)
-    static let surface1 = Color.white.opacity(0.06)
-    static let surface2 = Color.white.opacity(0.10)
-    static let border = Color.white.opacity(0.08)
+    // Surfaces (Adaptive Transparent)
+    static let surface1 = Color.primary.opacity(0.05)
+    static let surface2 = Color.primary.opacity(0.08)
+    static let border = Color.primary.opacity(0.12)
 
-    // Text
-    static let textPrimary = Color.white
-    static let textSecondary = Color.white.opacity(0.65)
-    static let textTertiary = Color.white.opacity(0.45)
+    // Text (Semantic)
+    static let textPrimary = Color.primary
+    static let textSecondary = Color.secondary
+    static let textTertiary = Color(UIColor.tertiaryLabel)
 
-    // Accent
+    // Accent (Keep branding)
     static let accent = Color(hex: "8B5CF6")
     static let accentGradient = LinearGradient(
       colors: [Color(hex: "8B5CF6"), Color(hex: "EC4899")],
@@ -154,7 +155,7 @@ struct GlassCard<Content: View>: View {
   var body: some View {
     content
       .padding(padding)
-      .background(Theme.Colors.surface1)
+      .background(Theme.Colors.surface1)  // Consider Material for true Glass?
       .overlay(
         RoundedRectangle(cornerRadius: Theme.Layout.radiusCard)
           .stroke(Theme.Colors.border, lineWidth: 1)
@@ -263,7 +264,7 @@ struct Chip: View {
         .padding(.vertical, 6)
         .background(
           isSelected
-            ? Theme.Colors.accent.opacity(0.20)
+            ? Theme.Colors.accent.opacity(0.15)
             : Theme.Colors.surface2
         )
         .overlay(
