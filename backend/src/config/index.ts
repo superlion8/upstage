@@ -33,7 +33,7 @@ const envSchema = z.object({
 
   // Claude / Anthropic AI
   ANTHROPIC_API_KEY: z.string().optional(),
-  CLAUDE_MODEL: z.string().default('claude-sonnet-4-20250514'),
+  CLAUDE_MODEL: z.string().default('claude-sonnet-4-5-20250929'),
 
   // Models
   THINKING_MODEL: z.string().default('gemini-3-flash-preview'),
