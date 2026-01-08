@@ -33,6 +33,9 @@ const log = createLogger('server');
 async function buildServer() {
   const fastify = Fastify({
     logger: false, // We use our own logger
+    requestTimeout: 600000, // 10 minutes for long image gen
+    connectionTimeout: 600000,
+    keepAliveTimeout: 610000,
   });
 
   // ============================================

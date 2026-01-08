@@ -210,8 +210,10 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       const toolCalls: any[] = [];
       let finalText = '';
       let generatedImages: any[] = [];
+      let lastDbUpdateTime = Date.now();
+      let hasPendingChanges = false;
 
-      // Create assistant message placeholder immediately so it can be polled/updated
+      // Create assistant message placeholder immediately
       const [assistantMessage] = await db.insert(messages).values({
         conversationId,
         role: 'assistant',
@@ -220,17 +222,50 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       }).returning();
       const assistantMessageId = assistantMessage.id;
 
-      // Heartbeat to keep connection alive during long tool calls (increased frequency to 5s)
+      // Handle client disconnect
+      let isDisconnected = false;
+      request.raw.on('close', () => {
+        logger.warn('Client disconnected from stream', { userId, conversationId, assistantMessageId });
+        isDisconnected = true;
+      });
+
+      // Heartbeat to keep connection alive (Comment + Event)
       const keepAlive = setInterval(() => {
-        // Send a comment-style heartbeat which is standard in SSE
+        if (isDisconnected) return;
         reply.raw.write(': heartbeat\n\n');
+        sendSSE(reply, 'ping', { timestamp: Date.now() });
       }, 5000);
+
+      // Function to sync current state to DB
+      const syncToDb = async (forceSent = false) => {
+        try {
+          await db.update(messages)
+            .set({
+              textContent: finalText,
+              generatedImageUrls: generatedImages.map(img => img.url),
+              toolCalls: toolCalls.map(tc => ({
+                tool: tc.tool,
+                args: tc.arguments,
+                result: tc.result
+              })),
+              status: forceSent ? 'sent' : 'generating',
+              updatedAt: new Date(),
+            })
+            .where(eq(messages.id, assistantMessageId));
+          lastDbUpdateTime = Date.now();
+          hasPendingChanges = false;
+        } catch (err) {
+          logger.error('DB sync failed', { error: err.message, assistantMessageId });
+        }
+      };
 
       // Run Claude agent with streaming
       const stream = runClaudeAgentStream(agentInput);
 
       try {
         for await (const event of stream) {
+          if (isDisconnected) break;
+
           // Collect data
           switch (event.type) {
             case 'tool_result':
@@ -252,15 +287,20 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
                 result: leanResult,
                 timestamp: new Date(),
               });
+              hasPendingChanges = true;
               break;
+
             case 'text_delta':
               finalText += event.data.delta;
+              hasPendingChanges = true;
               break;
+
             case 'image':
               const persistedUrl = await persistImage(event.data.id, event.data.url, userId);
               const leanImage = { ...event.data, url: persistedUrl };
               delete leanImage.data;
               generatedImages.push(leanImage);
+              hasPendingChanges = true;
 
               // Send modified event with URL
               sendSSE(reply, event.type, leanImage);
@@ -270,30 +310,26 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
           // Forward event to client (if not already handled)
           sendSSE(reply, event.type, event.data);
 
-          // Real-time DB persistence (Incremental)
-          // We don't need to await these as they are side-effects to ensure persistence on disconnect
-          db.update(messages)
-            .set({
-              textContent: finalText,
-              generatedImageUrls: generatedImages.map(img => img.url),
-              toolCalls: toolCalls.map(tc => ({
-                tool: tc.tool,
-                args: tc.arguments,
-                result: tc.result
-              })),
-            })
-            .where(eq(messages.id, assistantMessageId))
-            .catch(err => logger.error('Incremental DB update failed', { error: err.message }));
+          // Throttled DB persistence (every 2 seconds if changes pending)
+          if (hasPendingChanges && Date.now() - lastDbUpdateTime > 2000) {
+            syncToDb();
+          }
         }
       } finally {
         clearInterval(keepAlive);
       }
 
       // Final update to set status to 'sent'
-      await db.update(messages).set({
-        status: 'sent',
-        updatedAt: new Date(),
-      }).where(eq(messages.id, assistantMessageId));
+      await syncToDb(true);
+
+      // Send done event
+      if (!isDisconnected) {
+        sendSSE(reply, 'done', {
+          conversationId,
+          messageId: assistantMessageId,
+        });
+        reply.raw.end();
+      }
 
       // Send done event
       sendSSE(reply, 'done', {
