@@ -9,9 +9,14 @@ import { z } from 'zod';
 import { db, conversations, messages, users } from '../db/index.js';
 import { eq, desc } from 'drizzle-orm';
 import { runAgentStream, type AgentInput, type ConversationMessage, type StreamEvent } from '../agent/orchestrator-stream.js';
+import { runClaudeAgentStream, type ClaudeAgentInput, type ClaudeStreamEvent } from '../agent/orchestrator-claude.js';
+import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('api:chat-stream');
+
+// Feature flag: use Claude orchestrator when ANTHROPIC_API_KEY is set
+const USE_CLAUDE_ORCHESTRATOR = config.ai.claude?.enabled ?? false;
 
 // ============================================
 // Schemas
@@ -51,7 +56,7 @@ function sendSSE(reply: FastifyReply, event: string, data: any) {
 // ============================================
 
 export async function chatStreamRoutes(fastify: FastifyInstance) {
-  
+
   /**
    * Stream a message to the agent
    * POST /api/chat/stream
@@ -70,9 +75,9 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const userId = request.user.id;
     const body = streamMessageSchema.parse(request.body);
-    
+
     logger.info('Starting stream', { userId, hasText: !!body.text, imageCount: body.images?.length || 0 });
-    
+
     // Set SSE headers
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -80,22 +85,22 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no', // Disable nginx buffering
     });
-    
+
     try {
       // Get or create conversation
       let conversationId = body.conversationId;
-      
+
       if (!conversationId) {
         const [newConversation] = await db.insert(conversations).values({
           userId,
           title: body.text?.slice(0, 50) || '新对话',
         }).returning();
         conversationId = newConversation.id;
-        
+
         // Send conversation ID immediately
         sendSSE(reply, 'conversation', { conversationId });
       }
-      
+
       // Save user message
       const [userMessage] = await db.insert(messages).values({
         conversationId,
@@ -104,14 +109,14 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
         textContent: body.text,
         imageUrls: body.images?.map(img => img.data),
       }).returning();
-      
+
       // Get conversation history
       const historyMessages = await db.query.messages.findMany({
         where: eq(messages.conversationId, conversationId),
         orderBy: [desc(messages.createdAt)],
         limit: 20,
       });
-      
+
       const conversationHistory: ConversationMessage[] = historyMessages
         .reverse()
         .slice(0, -1)
@@ -126,7 +131,7 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
             })),
           },
         }));
-      
+
       // Build agent input
       const agentInput: AgentInput = {
         userId,
@@ -137,20 +142,24 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
         },
         conversationHistory,
       };
-      
+
       // Collected data for saving
       const toolCalls: any[] = [];
       let thinkingContent = '';
       let finalText = '';
       let generatedImages: any[] = [];
-      
-      // Run agent with streaming
-      const stream = runAgentStream(agentInput);
-      
+
+      // Run agent with streaming (Claude or Gemini based on config)
+      logger.info('Using orchestrator', { orchestrator: USE_CLAUDE_ORCHESTRATOR ? 'Claude' : 'Gemini' });
+
+      const stream = USE_CLAUDE_ORCHESTRATOR
+        ? runClaudeAgentStream(agentInput as ClaudeAgentInput)
+        : runAgentStream(agentInput);
+
       for await (const event of stream) {
         // Forward event to client
         sendSSE(reply, event.type, event.data);
-        
+
         // Collect data
         switch (event.type) {
           case 'thinking':
@@ -175,7 +184,7 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
             break;
         }
       }
-      
+
       // Save assistant message
       const [assistantMessage] = await db.insert(messages).values({
         conversationId,
@@ -186,22 +195,22 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
         toolCalls: toolCalls,
         thinking: thinkingContent,
       }).returning();
-      
+
       // Send done event
       sendSSE(reply, 'done', {
         conversationId,
         messageId: assistantMessage.id,
       });
-      
+
       reply.raw.end();
-      
+
     } catch (error) {
       logger.error('Stream error', { error, userId });
-      
+
       sendSSE(reply, 'error', {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
-      
+
       reply.raw.end();
     }
   });
