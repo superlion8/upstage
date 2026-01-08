@@ -3,156 +3,236 @@ import SwiftUI
 
 /// Message bubble view
 struct MessageBubbleView: View {
-  let message: Message
-
-  private var isUser: Bool {
-    message.role == .user
-  }
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      if isUser {
-        Spacer(minLength: 60)
-      } else {
-        // AI Avatar
-        Circle()
-          .fill(Color.accentColor.opacity(0.2))
-          .frame(width: 36, height: 36)
-          .overlay {
-            Image(systemName: "sparkles")
-              .foregroundColor(.accentColor)
-          }
-      }
-
-      VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
-        // User uploaded images
-        if let images = message.content.images, !images.isEmpty {
-          HStack(spacing: 8) {
-            ForEach(images) { image in
-              if let uiImage = UIImage(data: image.data) {
-                Image(uiImage: uiImage)
-                  .resizable()
-                  .aspectRatio(contentMode: .fill)
-                  .frame(width: 80, height: 80)
-                  .clipShape(RoundedRectangle(cornerRadius: 8))
-                  .overlay(alignment: .topLeading) {
-                    Text(image.label)
-                      .font(.caption2)
-                      .padding(4)
-                      .background(.ultraThinMaterial)
-                      .clipShape(RoundedRectangle(cornerRadius: 4))
-                  }
-              }
-            }
-          }
-        }
-
-        // Agent Steps (Cursor-like展示)
-        if !isUser, let steps = message.content.agentSteps, !steps.isEmpty {
-          AgentStepsView(steps: steps, thinking: message.content.thinking)
-            .padding(.bottom, 4)
-        }
-
-        // Text content (Markdown supported)
-        if let text = message.content.text, !text.isEmpty {
-          Markdown(text)
-            .markdownTheme(.messageTheme(isUser: isUser))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(isUser ? Color.accentColor : Color(.systemGray6))
-            .foregroundColor(isUser ? .white : .primary)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-        }
-
-        // Generated images
-        if let generatedImages = message.content.generatedImages, !generatedImages.isEmpty {
-          VStack(alignment: .leading, spacing: 8) {
-            ForEach(generatedImages) { image in
-              GeneratedImageView(image: image)
-            }
-          }
-        }
-
-        // GUI Request
-        if let guiRequest = message.content.guiRequest {
-          GuiRequestView(request: guiRequest)
-        }
-
-        // Status indicator
-        if message.status == .generating {
-          HStack(spacing: 4) {
-            ProgressView()
-              .scaleEffect(0.8)
-            Text("生成中...")
-              .font(.caption)
-              .foregroundColor(.secondary)
-          }
-        } else if message.status == .failed {
-          HStack(spacing: 4) {
-            Image(systemName: "exclamationmark.circle")
-              .foregroundColor(.red)
-            Text("发送失败")
-              .font(.caption)
-              .foregroundColor(.red)
-          }
-        }
-      }
-
-      if !isUser {
-        Spacer(minLength: 60)
-      } else {
-        // User Avatar
-        Circle()
-          .fill(Color(.systemGray4))
-          .frame(width: 36, height: 36)
-          .overlay {
-            Image(systemName: "person.fill")
-              .foregroundColor(.gray)
-          }
-      }
+    let message: Message
+    
+    private var isUser: Bool {
+        message.role == .user
     }
-  }
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if isUser {
+                Spacer(minLength: 60)
+            } else {
+                // AI Avatar
+                Circle()
+                    .fill(Theme.Colors.accent.opacity(0.1))
+                    .frame(width: 32, height: 32)
+                    .overlay {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14))
+                            .foregroundColor(Theme.Colors.accent)
+                    }
+            }
+            
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 12) {
+                
+                // 1. User Uploaded Images
+                if let images = message.content.images, !images.isEmpty {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
+                        ForEach(images) { image in
+                            if let uiImage = UIImage(data: image.data) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.radiusCard))
+                            }
+                        }
+                    }
+                }
+                
+                // 2. Process Card (AI only)
+                if !isUser, let steps = message.content.agentSteps, !steps.isEmpty {
+                    ProcessCard(steps: steps, isGenerating: message.status == .generating)
+                }
+                
+                // 3. Text Content
+                if let text = message.content.text, !text.isEmpty {
+                    if isUser {
+                        // User Bubble
+                        Text(text)
+                            .font(Theme.Typography.body)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(Theme.Colors.accent) // Primary bubble
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    } else {
+                        // AI Glass Card
+                        GlassCard(padding: 0) {
+                            Markdown(text)
+                                .markdownTheme(Theme.messageTheme(isUser: false))
+                                .padding(16)
+                        }
+                    }
+                }
+                
+                // 4. GUI Request
+                if let guiRequest = message.content.guiRequest {
+                    GuiRequestView(request: guiRequest)
+                }
+                
+                // 5. Result Strip (AI Generated Images)
+                if let generatedImages = message.content.generatedImages, !generatedImages.isEmpty {
+                    ResultStrip(images: generatedImages)
+                }
+                
+                // 6. Status/Error (Simple text below bubble)
+                if message.status == .failed {
+                    Text("Failed to send")
+                        .font(Theme.Typography.caption)
+                        .foregroundColor(Theme.Colors.error)
+                }
+            }
+            
+            if !isUser {
+                Spacer(minLength: 40)
+            } else {
+                // User Avatar
+               Circle()
+                   .fill(Theme.Colors.surface2)
+                   .frame(width: 32, height: 32)
+                   .overlay {
+                       Image(systemName: "person.fill")
+                           .font(.system(size: 14))
+                           .foregroundColor(Theme.Colors.textTertiary)
+                   }
+            }
+        }
+    }
 }
 
-/// Generated image view with actions
-struct GeneratedImageView: View {
-  let image: GeneratedImage
-  @State private var showFullScreen = false
+// MARK: - Result Strip Components
+
+struct ResultStrip: View {
+    let images: [GeneratedImage]
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(images) { image in
+                    ResultStripItem(image: image)
+                }
+            }
+            .padding(.horizontal, 4) // Slight internal padding
+        }
+    }
+}
+
+struct ResultStripItem: View {
+    let image: GeneratedImage
+    @State private var showFullScreen = false
+    
+    var body: some View {
+        AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
+            switch phase {
+            case .empty:
+                GlassCard(padding: 0) {
+                    ProgressView()
+                        .frame(width: 160, height: 160) // 1:1 Square
+                }
+            case .success(let img):
+                img
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 160, height: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.radiusCard))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Layout.radiusCard)
+                            .stroke(Theme.Colors.border, lineWidth: 1)
+                    )
+                    .overlay(alignment: .topTrailing) {
+                        HStack(spacing: 4) {
+                            CircleButton(icon: "arrow.down.to.line") {
+                                // Save action placeholder
+                            }
+                            CircleButton(icon: "star") {
+                                // Asset action placeholder
+                            }
+                        }
+                        .padding(8)
+                    }
+                    .onTapGesture {
+                        showFullScreen = true
+                    }
+            case .failure:
+                 GlassCard(padding: 0) {
+                     VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(Theme.Colors.error)
+                        Text("Failed")
+                            .font(Theme.Typography.caption)
+                     }
+                    .frame(width: 160, height: 160)
+                }
+            @unknown default:
+                EmptyView()
+            }
+        }
+        .fullScreenCover(isPresented: $showFullScreen) {
+            FullScreenImageView(url: image.fullURL)
+        }
+    }
+}
+
+struct CircleButton: View {
+    let icon: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 28, height: 28)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+        }
+    }
+}
+
+// MARK: - Helpers
+
+/// GUI Request view
+struct GuiRequestView: View {
+  let request: GuiRequest
 
   var body: some View {
-    AsyncImage(url: URL(string: image.fullURL)) { phase in
-      switch phase {
-      case .empty:
-        Color.gray.opacity(0.3)
-          .frame(width: 250, height: 250)
-          .clipShape(RoundedRectangle(cornerRadius: 12))
-          .overlay {
-            ProgressView()
-          }
-      case .success(let loadedImage):
-        loadedImage
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxWidth: 250)
-          .clipShape(RoundedRectangle(cornerRadius: 12))
-          .onTapGesture {
-            showFullScreen = true
-          }
-      case .failure:
-        Color.gray.opacity(0.3)
-          .frame(width: 250, height: 250)
-          .clipShape(RoundedRectangle(cornerRadius: 12))
-          .overlay {
-            Image(systemName: "photo")
-              .foregroundColor(.gray)
-          }
-      @unknown default:
-        EmptyView()
+    VStack(alignment: .leading, spacing: 12) {
+      if let message = request.message {
+        Text(message)
+          .font(Theme.Typography.body)
+          .foregroundColor(Theme.Colors.textPrimary)
+      }
+
+      switch request.type {
+      case .changeOutfit:
+        Text("请上传新的服装图片")
+           .font(Theme.Typography.caption)
+           .foregroundColor(Theme.Colors.textSecondary)
+      case .changeModel:
+        Text("请上传模特参考图或选择模特风格")
+           .font(Theme.Typography.caption)
+           .foregroundColor(Theme.Colors.textSecondary)
+      case .replicateReference:
+        Text("请上传参考图片")
+           .font(Theme.Typography.caption)
+           .foregroundColor(Theme.Colors.textSecondary)
+      case .selectModel, .selectScene:
+        Text("请从素材库中选择")
+           .font(Theme.Typography.caption)
+           .foregroundColor(Theme.Colors.textSecondary)
       }
     }
-    .fullScreenCover(isPresented: $showFullScreen) {
-      FullScreenImageView(url: image.fullURL)
-    }
+    .padding(12)
+    .background(Theme.Colors.surface2)
+    .clipShape(RoundedRectangle(cornerRadius: 12))
+    .overlay(
+        RoundedRectangle(cornerRadius: 12)
+            .stroke(Theme.Colors.border, lineWidth: 1)
+    )
   }
 }
 
@@ -166,125 +246,41 @@ struct FullScreenImageView: View {
       AsyncImage(url: URL(string: url)) { phase in
         switch phase {
         case .empty:
-          ProgressView()
+           ProgressView()
         case .success(let image):
-          image
-            .resizable()
-            .aspectRatio(contentMode: .fit)
+           image.resizable().aspectRatio(contentMode: .fit)
         case .failure:
-          Image(systemName: "photo")
-            .foregroundColor(.gray)
-        @unknown default:
-          EmptyView()
+           Image(systemName: "photo").foregroundColor(.gray)
+        @unknown default: EmptyView()
         }
       }
       .ignoresSafeArea()
+      .background(Color.black)
       .toolbar {
-        ToolbarItem(placement: .navigationBarTrailing) {
-          Button {
-            dismiss()
-          } label: {
-            Image(systemName: "xmark.circle.fill")
-              .font(.title2)
-              .foregroundColor(.white)
-          }
-        }
-
-        ToolbarItem(placement: .bottomBar) {
-          HStack {
-            Button {
-              // Save to photos
-            } label: {
-              Label("保存", systemImage: "square.and.arrow.down")
-            }
-
-            Spacer()
-
-            Button {
-              // Share
-            } label: {
-              Label("分享", systemImage: "square.and.arrow.up")
-            }
-          }
-        }
+         ToolbarItem(placement: .navigationBarTrailing) {
+             Button { dismiss() } label: { 
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.white)
+             }
+         }
       }
       .toolbarBackground(.hidden, for: .navigationBar)
     }
-    .background(Color.black)
   }
 }
 
-/// GUI Request view
-struct GuiRequestView: View {
-  let request: GuiRequest
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      if let message = request.message {
-        Text(message)
-          .font(.subheadline)
-      }
-
-      // Action buttons based on type
-      switch request.type {
-      case .changeOutfit:
-        Text("请上传新的服装图片")
-          .font(.caption)
-          .foregroundColor(.secondary)
-      case .changeModel:
-        Text("请上传模特参考图或选择模特风格")
-          .font(.caption)
-          .foregroundColor(.secondary)
-      case .replicateReference:
-        Text("请上传参考图片")
-          .font(.caption)
-          .foregroundColor(.secondary)
-      case .selectModel, .selectScene:
-        Text("请从素材库中选择")
-          .font(.caption)
-          .foregroundColor(.secondary)
-      }
-    }
-    .padding()
-    .background(Color.accentColor.opacity(0.1))
-    .clipShape(RoundedRectangle(cornerRadius: 12))
-  }
-}
-
-#Preview {
-  VStack {
-    MessageBubbleView(
-      message: Message(
-        id: UUID(),
-        role: .user,
-        content: MessageContent(text: "帮我生成一张模特图"),
-        createdAt: Date(),
-        status: .sent
-      ))
-
-    MessageBubbleView(
-      message: Message(
-        id: UUID(),
-        role: .assistant,
-        content: MessageContent(text: "好的，我来帮你生成模特图。请稍等..."),
-        createdAt: Date(),
-        status: .sent
-      ))
-  }
-  .padding()
-}
-
-// MARK: - Markdown Theme Extension
+// MARK: - Markdown Extension
 
 extension Theme {
-  static func messageTheme(isUser: Bool) -> Theme {
-    Theme()
+  static func messageTheme(isUser: Bool) -> MarkdownUI.Theme {
+    MarkdownUI.Theme()
       .text {
-        ForegroundColor(isUser ? .white : .primary)
+        ForegroundColor(isUser ? .white : Theme.Colors.textPrimary)
         FontSize(16)
       }
       .link {
-        ForegroundColor(isUser ? .white.opacity(0.8) : .accentColor)
+        ForegroundColor(isUser ? .white.opacity(0.8) : Theme.Colors.accent)
         UnderlineStyle(.single)
       }
       .strong {
@@ -320,7 +316,7 @@ extension Theme {
       .code {
         FontFamilyVariant(.monospaced)
         FontSize(14)
-        BackgroundColor(isUser ? .white.opacity(0.2) : .gray.opacity(0.1))
+        BackgroundColor(isUser ? .white.opacity(0.2) : Theme.Colors.surface2)
       }
       .codeBlock { configuration in
         configuration.label
@@ -330,10 +326,10 @@ extension Theme {
             FontSize(13)
           }
           .padding(12)
-          .background(isUser ? Color.white.opacity(0.1) : Color(.systemGray5))
+          .background(isUser ? Color.white.opacity(0.1) : Theme.Colors.bg1)
           .clipShape(RoundedRectangle(cornerRadius: 8))
           .markdownMargin(top: .em(0.8), bottom: .em(0.8))
-      }
+        }
       .listItem { configuration in
         configuration.label
           .markdownMargin(top: .em(0.2))

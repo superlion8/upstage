@@ -1,322 +1,111 @@
 import SwiftUI
 
-/// Input bar for chat with voice input support
-struct InputBarView: View {
+struct ChatInputBar: View {
   @Binding var text: String
-  @Binding var selectedImages: [MessageImage]
+  @Binding var selectedImages: [MessageImage]  // Changed from [Data]
   let isLoading: Bool
   let onSend: () -> Void
-  let onAddImage: () -> Void
+  let onQuickAction: (String) -> Void
+  let onUpload: () -> Void
   let onRemoveImage: (Int) -> Void
 
-  @FocusState private var isFocused: Bool
-  @StateObject private var audioRecorder = AudioRecorderManager()
-
-  // Voice input state
-  @State private var isVoiceMode = false
-  @State private var dragOffset: CGFloat = 0
-  @State private var showCancelHint = false
-
-  private let cancelThreshold: CGFloat = -80
+  private let quickActions = [
+    "Change Model", "Change Outfit", "Replicate", "Edit",
+  ]
 
   var body: some View {
-    VStack(spacing: 0) {
-      // Selected images preview
+    VStack(spacing: 12) {
+      // Quick Actions
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          ForEach(quickActions, id: \.self) { action in
+            Chip(title: action, isSelected: false) {
+              onQuickAction(action)
+            }
+          }
+        }
+        .padding(.horizontal, Theme.Layout.sidePadding)
+      }
+      .frame(height: 32)
+
+      // Selected Images Preview
       if !selectedImages.isEmpty {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 8) {
             ForEach(Array(selectedImages.enumerated()), id: \.element.id) { index, image in
-              SelectedImagePreview(
-                image: image,
-                onRemove: {
-                  onRemoveImage(index)
-                }
-              )
-            }
-          }
-          .padding(.horizontal)
-          .padding(.vertical, 8)
-        }
-        .background(Color(.systemGray6))
-      }
-
-      // Voice recording overlay
-      if audioRecorder.isRecording {
-        VoiceRecordingView(
-          audioLevel: audioRecorder.audioLevel,
-          transcribedText: audioRecorder.transcribedText,
-          showCancelHint: showCancelHint
-        )
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // Input area
-      HStack(alignment: .bottom, spacing: 12) {
-        // Add image button
-        Button {
-          onAddImage()
-        } label: {
-          Image(systemName: "photo.badge.plus")
-            .font(.title2)
-            .foregroundColor(.accentColor)
-        }
-        .disabled(isLoading || selectedImages.count >= 5 || audioRecorder.isRecording)
-
-        // Text input area (ZStack/Overlay for stability)
-        TextField("发消息或按住说话...", text: $text, axis: .vertical)
-          .textFieldStyle(.plain)
-          .lineLimit(1...5)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
-          .background(Color(.systemGray6))
-          .clipShape(RoundedRectangle(cornerRadius: 20))
-          .focused($isFocused)
-          .opacity(audioRecorder.isRecording ? 0 : 1)
-          .overlay(
-            Group {
-              // 2. Gesture Overlay Layer
-              // Handles Tap-to-Focus and Hold-to-Record.
-              // PERSISTENCE: It stays alive during recording so the gesture is not killed.
-              if (text.isEmpty && !isFocused) || audioRecorder.isRecording {
-                ZStack {
-                  RoundedRectangle(cornerRadius: 20)
-                    .fill(
-                      audioRecorder.isRecording
-                        ? (showCancelHint ? Color.red : Color.accentColor) : Color(.systemGray6))
-
-                  HStack {
-                    if audioRecorder.isRecording {
-                      Image(systemName: "waveform")
+              if let uiImage = UIImage(data: image.data) {
+                Image(uiImage: uiImage)
+                  .resizable()
+                  .aspectRatio(contentMode: .fill)
+                  .frame(width: 60, height: 60)
+                  .clipShape(RoundedRectangle(cornerRadius: 8))
+                  .overlay(alignment: .topTrailing) {
+                    Button {
+                      onRemoveImage(index)
+                    } label: {
+                      Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.white)
-                      Text(showCancelHint ? "松开取消" : "正在录音...上移取消")
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                    } else {
-                      Text("发消息或按住说话...")
-                        .font(.body)
-                        .foregroundColor(Color(.placeholderText))
-                        .padding(.leading, 4)
-                      Spacer()
+                        .background(Color.black.opacity(0.5))
+                        .clipShape(Circle())
                     }
+                    .padding(2)
                   }
-                  .padding(.horizontal, 12)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 20))
-                .onTapGesture {
-                  if !audioRecorder.isRecording {
-                    isFocused = true
-                  }
-                }
-                .gesture(
-                  DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                      if !isLoading && !audioRecorder.isRecording {
-                        startVoiceRecording()
-                      }
-                      if audioRecorder.isRecording {
-                        handleDragChanged(value)
-                      }
-                    }
-                    .onEnded { _ in
-                      if audioRecorder.isRecording {
-                        stopVoiceRecording()
-                      }
-                    }
-                )
               }
             }
-          )
-
-        // Voice / Send button
-        ZStack {
-          if canSend {
-            Button {
-              onSend()
-              isFocused = false
-            } label: {
-              Image(systemName: "arrow.up.circle.fill")
-                .font(.title)
-                .foregroundColor(.accentColor)
-            }
-            .transition(.scale)
-          } else {
-            Image(systemName: "mic.circle.fill")
-              .font(.title)
-              .foregroundColor(!isLoading ? .accentColor : .gray)
-              .padding(4)
-              .contentShape(Rectangle())
-              .gesture(
-                DragGesture(minimumDistance: 0)
-                  .onChanged { value in
-                    if !isLoading && !audioRecorder.isRecording {
-                      startVoiceRecording()
-                    }
-                    if audioRecorder.isRecording {
-                      handleDragChanged(value)
-                    }
-                  }
-                  .onEnded { _ in
-                    if audioRecorder.isRecording {
-                      stopVoiceRecording()
-                    }
-                  }
-              )
-              .transition(.scale)
           }
-        }
-        .frame(width: 44, height: 44)
-        .disabled(isLoading)
-      }
-      .padding(.horizontal)
-      .padding(.vertical, 12)
-    }
-    .background(Color(.systemBackground))
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: audioRecorder.isRecording)
-  }
-
-  private var canSend: Bool {
-    !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !selectedImages.isEmpty
-  }
-
-  // MARK: - Voice Recording
-
-  private func handleDragChanged(_ value: DragGesture.Value) {
-    if audioRecorder.isRecording {
-      dragOffset = value.translation.height
-      showCancelHint = dragOffset < cancelThreshold
-    }
-  }
-
-  private func startVoiceRecording() {
-    isFocused = false
-    dragOffset = 0
-    showCancelHint = false
-
-    Task {
-      await audioRecorder.startRecording()
-    }
-  }
-
-  private func stopVoiceRecording() {
-    let shouldCancel = showCancelHint || dragOffset < cancelThreshold
-
-    if shouldCancel {
-      audioRecorder.cancelRecording()
-    } else {
-      let transcribedText = audioRecorder.stopRecording()
-      if !transcribedText.isEmpty {
-        text = transcribedText
-        // Auto focus after recording so user can edit immediately
-        isFocused = true
-      }
-    }
-
-    dragOffset = 0
-    showCancelHint = false
-  }
-}
-
-// MARK: - Voice Recording View
-
-struct VoiceRecordingView: View {
-  let audioLevel: Float
-  let transcribedText: String
-  let showCancelHint: Bool
-
-  var body: some View {
-    VStack(spacing: 12) {
-      // Cancel hint
-      Text(showCancelHint ? "松开取消" : "松手发送，上移取消")
-        .font(.subheadline)
-        .foregroundColor(showCancelHint ? .red : .secondary)
-
-      // Audio waveform visualization
-      HStack(spacing: 2) {
-        ForEach(0..<30, id: \.self) { i in
-          RoundedRectangle(cornerRadius: 2)
-            .fill(showCancelHint ? Color.red : Color.accentColor)
-            .frame(width: 4, height: barHeight(for: i))
-            .animation(.easeInOut(duration: 0.1), value: audioLevel)
+          .padding(.horizontal, Theme.Layout.sidePadding)
         }
       }
-      .frame(height: 40)
-      .padding(.horizontal)
-      .padding(.vertical, 16)
-      .background(showCancelHint ? Color.red.opacity(0.1) : Color.accentColor.opacity(0.1))
-      .clipShape(RoundedRectangle(cornerRadius: 12))
 
-      // Transcribed text preview
-      if !transcribedText.isEmpty {
-        Text(transcribedText)
-          .font(.body)
-          .foregroundColor(.primary)
-          .lineLimit(2)
-          .padding(.horizontal)
+      // Input Area
+      HStack(spacing: 12) {
+        // Upload Button
+        Button(action: onUpload) {
+          Image(systemName: "plus")
+            .font(.system(size: 20, weight: .medium))
+            .foregroundColor(Theme.Colors.textSecondary)
+            .frame(width: 40, height: 40)
+            .background(Theme.Colors.surface2)
+            .clipShape(Circle())
+        }
+
+        // Text Input
+        AppInput(
+          text: $text,
+          placeholder: "Type a message...",
+          icon: nil,
+          onCommit: onSend
+        )
+
+        // Send Button (only if text not empty or has images)
+        if !text.isEmpty || !selectedImages.isEmpty {
+          Button(action: onSend) {
+            if isLoading {
+              ProgressView()
+                .tint(.white)
+            } else {
+              Image(systemName: "arrow.up")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+            }
+          }
+          .frame(width: 40, height: 40)
+          .background(Theme.Colors.accent)
+          .clipShape(Circle())
+          .transition(.scale)
+          .disabled(isLoading)
+        }
       }
+      .padding(.horizontal, 16)
+      .padding(.bottom, 8)
     }
-    .padding()
-    .background(Color(.systemBackground))
-  }
-
-  private func barHeight(for index: Int) -> CGFloat {
-    let baseHeight: CGFloat = 8
-    let maxHeight: CGFloat = 32
-    let variation = sin(Double(index) * 0.5 + Double(audioLevel) * 10) * 0.5 + 0.5
-    return baseHeight + CGFloat(variation) * CGFloat(audioLevel) * (maxHeight - baseHeight)
-  }
-}
-
-// MARK: - Selected Image Preview
-
-struct SelectedImagePreview: View {
-  let image: MessageImage
-  let onRemove: () -> Void
-
-  var body: some View {
-    ZStack(alignment: .topTrailing) {
-      if let uiImage = UIImage(data: image.data) {
-        Image(uiImage: uiImage)
-          .resizable()
-          .aspectRatio(contentMode: .fill)
-          .frame(width: 60, height: 60)
-          .clipShape(RoundedRectangle(cornerRadius: 8))
-      }
-
-      // Label
-      Text(image.label)
-        .font(.caption2)
-        .fontWeight(.medium)
-        .foregroundColor(.white)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .background(Color.black.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .offset(x: -4, y: 4)
-
-      // Remove button
-      Button {
-        onRemove()
-      } label: {
-        Image(systemName: "xmark.circle.fill")
-          .font(.title3)
-          .foregroundColor(.white)
-          .background(Circle().fill(Color.black.opacity(0.5)))
-      }
-      .offset(x: 6, y: -6)
-    }
-  }
-}
-
-#Preview {
-  VStack {
-    Spacer()
-    InputBarView(
-      text: .constant(""),
-      selectedImages: .constant([]),
-      isLoading: false,
-      onSend: {},
-      onAddImage: {},
-      onRemoveImage: { _ in }
+    .padding(.top, 12)
+    .background(
+      // Blur effect for Input Bar background
+      Rectangle()
+        .fill(Theme.Colors.bg0.opacity(0.8))
+        .background(.ultraThinMaterial)
+        .ignoresSafeArea()
     )
   }
 }

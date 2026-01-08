@@ -2,369 +2,416 @@ import SwiftUI
 
 /// Assets library view
 struct AssetsView: View {
-    @StateObject private var viewModel = AssetsViewModel()
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Category tabs
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(AssetsViewModel.Category.allCases, id: \.self) { category in
-                            CategoryTab(
-                                title: category.title,
-                                isSelected: viewModel.selectedCategory == category
-                            ) {
-                                viewModel.selectedCategory = category
-                            }
-                        }
-                    }
-                    .padding()
-                }
-                
-                // Assets grid
-                ScrollView {
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, 100)
-                    } else if viewModel.assets.isEmpty {
-                        EmptyStateView(
-                            icon: "photo.on.rectangle.angled",
-                            title: "暂无素材",
-                            message: "上传或生成的素材将显示在这里"
-                        )
-                        .padding(.top, 100)
-                    } else {
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 12) {
-                            ForEach(viewModel.assets) { asset in
-                                AssetCard(asset: asset) {
-                                    viewModel.selectedAsset = asset
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle("素材库")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        viewModel.showUploadSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-            .sheet(item: $viewModel.selectedAsset) { asset in
-                AssetDetailView(asset: asset)
-            }
-            .sheet(isPresented: $viewModel.showUploadSheet) {
-                AssetUploadSheet(onUpload: viewModel.uploadAsset)
-            }
-            .refreshable {
-                await viewModel.loadAssets()
-            }
-        }
-        .task {
-            await viewModel.loadAssets()
-        }
-    }
-}
+  @StateObject private var viewModel = AssetsViewModel()
 
-/// Category tab button
-struct CategoryTab: View {
-    let title: String
-    let isSelected: Bool
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            Text(title)
-                .font(.subheadline)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundColor(isSelected ? .white : .primary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.accentColor : Color(.systemGray6))
-                .clipShape(Capsule())
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        // Global Background
+        Theme.Colors.bg0.ignoresSafeArea()
+
+        VStack(spacing: 0) {
+          // Header
+          HStack {
+            Text("Assets")
+              .font(Theme.Typography.title)
+              .foregroundColor(Theme.Colors.textPrimary)
+
+            Spacer()
+
+            Button {
+              viewModel.showUploadSheet = true
+            } label: {
+              Image(systemName: "plus")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundColor(Theme.Colors.textPrimary)
+                .frame(width: 40, height: 40)
+                .background(Theme.Colors.surface2)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Theme.Colors.border, lineWidth: 1))
+            }
+          }
+          .padding(.horizontal, Theme.Layout.sidePadding)
+          .padding(.bottom, 16)
+          .background(Theme.Colors.bg0)
+
+          // Category Filter
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+              ForEach(AssetsViewModel.Category.allCases, id: \.self) { category in
+                Chip(
+                  title: category.title,
+                  isSelected: viewModel.selectedCategory == category
+                ) {
+                  withAnimation {
+                    viewModel.selectedCategory = category
+                  }
+                }
+              }
+            }
+            .padding(.horizontal, Theme.Layout.sidePadding)
+            .padding(.bottom, 16)
+          }
+
+          // Assets grid
+          ScrollView {
+            if viewModel.isLoading {
+              ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 100)
+            } else if viewModel.assets.isEmpty {
+              VStack(spacing: 16) {
+                Image(systemName: "photo.on.rectangle.angled")
+                  .font(.system(size: 48))
+                  .foregroundColor(Theme.Colors.textTertiary)
+                Text("No Assets")
+                  .font(Theme.Typography.section)
+                  .foregroundColor(Theme.Colors.textSecondary)
+                Text("Upload or generate assets to see them here")
+                  .font(Theme.Typography.body)
+                  .foregroundColor(Theme.Colors.textTertiary)
+                  .multilineTextAlignment(.center)
+              }
+              .padding(.top, 100)
+            } else {
+              LazyVGrid(
+                columns: [
+                  GridItem(.flexible(), spacing: 12),
+                  GridItem(.flexible(), spacing: 12),
+                  GridItem(.flexible(), spacing: 12),
+                ], spacing: 12
+              ) {
+                ForEach(viewModel.assets) { asset in
+                  AssetCard(asset: asset) {
+                    viewModel.selectedAsset = asset
+                  }
+                }
+              }
+              .padding(.horizontal, Theme.Layout.sidePadding)
+              .padding(.bottom, 32)
+            }
+          }
+          .refreshable {
+            await viewModel.loadAssets()
+          }
         }
+      }
+      .navigationBarHidden(true)
+      .sheet(item: $viewModel.selectedAsset) { asset in
+        AssetDetailView(asset: asset)
+      }
+      .sheet(isPresented: $viewModel.showUploadSheet) {
+        AssetUploadSheet(onUpload: viewModel.uploadAsset)
+      }
     }
+    .task {
+      await viewModel.loadAssets()
+    }
+  }
 }
 
 /// Asset card in grid
 struct AssetCard: View {
-    let asset: Asset
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 4) {
-                AsyncImage(url: URL(string: asset.thumbnailUrl ?? asset.url)) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color(.systemGray5)
-                        .overlay {
-                            ProgressView()
-                        }
-                }
-                .frame(height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                
-                if let name = asset.name {
-                    Text(name)
-                        .font(.caption)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                }
-            }
-        }
-    }
-}
+  let asset: Asset
+  let onTap: () -> Void
 
-/// Empty state view
-struct EmptyStateView: View {
-    let icon: String
-    let title: String
-    let message: String
-    
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 50))
-                .foregroundColor(.gray)
-            
-            Text(title)
-                .font(.headline)
-            
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+  var body: some View {
+    Button(action: onTap) {
+      VStack(spacing: 8) {
+        AsyncImage(url: URL(string: asset.thumbnailUrl ?? asset.url)) { phase in
+          switch phase {
+          case .empty:
+            Rectangle()
+              .fill(Theme.Colors.surface1)
+              .overlay(ProgressView())
+          case .success(let image):
+            image
+              .resizable()
+              .aspectRatio(contentMode: .fill)
+          case .failure:
+            Rectangle()
+              .fill(Theme.Colors.surface1)
+              .overlay(
+                Image(systemName: "exclamationmark.triangle")
+                  .foregroundColor(Theme.Colors.textTertiary)
+              )
+          @unknown default:
+            EmptyView()
+          }
         }
-        .padding()
+        .aspectRatio(1, contentMode: .fit)  // Square aspect ratio
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.radiusCard))
+        .overlay(
+          RoundedRectangle(cornerRadius: Theme.Layout.radiusCard)
+            .stroke(Theme.Colors.border, lineWidth: 1)
+        )
+
+        if let name = asset.name {
+          Text(name)
+            .font(Theme.Typography.caption)
+            .foregroundColor(Theme.Colors.textSecondary)
+            .lineLimit(1)
+        }
+      }
     }
+  }
 }
 
 /// Asset detail view
 struct AssetDetailView: View {
-    let asset: Asset
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Image
-                    AsyncImage(url: URL(string: asset.url)) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } placeholder: {
-                        ProgressView()
-                    }
-                    .frame(maxHeight: 400)
-                    
-                    // Info
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let name = asset.name {
-                            LabeledContent("名称", value: name)
-                        }
-                        
-                        LabeledContent("类型", value: asset.type.rawValue)
-                        LabeledContent("创建时间", value: asset.createdAt.formatted())
-                        
-                        if let tags = asset.tags, !tags.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("标签")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                
-                                FlowLayout(spacing: 8) {
-                                    ForEach(tags, id: \.self) { tag in
-                                        Text(tag)
-                                            .font(.caption)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color(.systemGray6))
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding()
-                }
+  let asset: Asset
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        Theme.Colors.bg0.ignoresSafeArea()
+
+        ScrollView {
+          VStack(spacing: 24) {
+            // Image
+            GlassCard(padding: 0) {
+              AsyncImage(url: URL(string: asset.url)) { image in
+                image
+                  .resizable()
+                  .aspectRatio(contentMode: .fit)
+              } placeholder: {
+                ProgressView().padding(40)
+              }
             }
-            .navigationTitle("素材详情")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") {
-                        dismiss()
+            .frame(maxHeight: 500)
+
+            // Info Section
+            VStack(alignment: .leading, spacing: 16) {
+              if let name = asset.name {
+                DetailRow(label: "Name", value: name)
+              }
+
+              DetailRow(label: "Type", value: asset.type.rawValue.capitalized)
+              DetailRow(
+                label: "Created",
+                value: asset.createdAt.formatted(date: .abbreviated, time: .shortened))
+
+              if let tags = asset.tags, !tags.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                  Text("Tags")
+                    .font(Theme.Typography.caption)
+                    .foregroundColor(Theme.Colors.textTertiary)
+
+                  FlowLayout(spacing: 8) {
+                    ForEach(tags, id: \.self) { tag in
+                      Text(tag)
+                        .font(Theme.Typography.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Theme.Colors.surface2)
+                        .cornerRadius(8)
+                        .foregroundColor(Theme.Colors.textSecondary)
                     }
+                  }
                 }
-                
-                ToolbarItem(placement: .bottomBar) {
-                    HStack {
-                        Button {
-                            // Use in chat
-                        } label: {
-                            Label("使用", systemImage: "arrow.right.circle")
-                        }
-                        
-                        Spacer()
-                        
-                        Button {
-                            // Share
-                        } label: {
-                            Label("分享", systemImage: "square.and.arrow.up")
-                        }
-                        
-                        Spacer()
-                        
-                        Button(role: .destructive) {
-                            // Delete
-                        } label: {
-                            Label("删除", systemImage: "trash")
-                        }
-                    }
-                }
+              }
             }
+            .padding(.horizontal, Theme.Layout.padding)
+
+            // Actions
+            HStack(spacing: 16) {
+              SecondaryButton("Delete", icon: "trash") {
+                // Delete logic
+              }
+
+              PrimaryButton("Use", icon: "arrow.right") {
+                // Use logic
+              }
+            }
+            .padding(.horizontal, Theme.Layout.padding)
+            .padding(.bottom, 32)
+          }
+          .padding(.vertical, 24)
         }
+      }
+      .navigationTitle("Details")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          Button("Done") {
+            dismiss()
+          }
+        }
+      }
     }
+  }
+}
+
+struct DetailRow: View {
+  let label: String
+  let value: String
+
+  var body: some View {
+    HStack {
+      Text(label)
+        .font(Theme.Typography.body)
+        .foregroundColor(Theme.Colors.textTertiary)
+      Spacer()
+      Text(value)
+        .font(Theme.Typography.body)
+        .foregroundColor(Theme.Colors.textPrimary)
+    }
+  }
 }
 
 /// Asset upload sheet
 struct AssetUploadSheet: View {
-    let onUpload: (Asset.AssetType, Data, String?) -> Void
-    
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedType: Asset.AssetType = .product
-    @State private var selectedImage: Data?
-    @State private var name: String = ""
-    @State private var showImagePicker = false
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("类型") {
-                    Picker("素材类型", selection: $selectedType) {
-                        Text("商品").tag(Asset.AssetType.product)
-                        Text("模特").tag(Asset.AssetType.model)
-                        Text("场景").tag(Asset.AssetType.scene)
-                        Text("参考").tag(Asset.AssetType.reference)
-                    }
-                    .pickerStyle(.segmented)
-                }
-                
-                Section("图片") {
-                    if let imageData = selectedImage, let uiImage = UIImage(data: imageData) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 200)
-                            .onTapGesture {
-                                showImagePicker = true
-                            }
-                    } else {
-                        Button {
-                            showImagePicker = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "photo.badge.plus")
-                                Text("选择图片")
-                            }
-                        }
-                    }
-                }
-                
-                Section("名称（可选）") {
-                    TextField("输入名称", text: $name)
-                }
+  let onUpload: (Asset.AssetType, Data, String?) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var selectedType: Asset.AssetType = .product
+  @State private var selectedImage: Data?
+  @State private var name: String = ""
+  @State private var showImagePicker = false
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        Theme.Colors.bg0.ignoresSafeArea()
+
+        ScrollView {
+          VStack(spacing: 24) {
+
+            // Type Selection
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Type")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.textTertiary)
+
+              Picker("Type", selection: $selectedType) {
+                Text("Product").tag(Asset.AssetType.product)
+                Text("Model").tag(Asset.AssetType.model)
+                Text("Scene").tag(Asset.AssetType.scene)
+                Text("Reference").tag(Asset.AssetType.reference)
+              }
+              .pickerStyle(.segmented)
+              .colorScheme(.dark)  // Enforce dark picker
             }
-            .navigationTitle("上传素材")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
-                        dismiss()
+
+            // Image Selection
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Image")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.textTertiary)
+
+              Button {
+                showImagePicker = true
+              } label: {
+                if let imageData = selectedImage, let uiImage = UIImage(data: imageData) {
+                  Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxHeight: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.radiusCard))
+                    .overlay(
+                      RoundedRectangle(cornerRadius: Theme.Layout.radiusCard)
+                        .stroke(Theme.Colors.border, lineWidth: 1)
+                    )
+                } else {
+                  GlassCard {
+                    VStack(spacing: 12) {
+                      Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 32))
+                        .foregroundColor(Theme.Colors.accent)
+                      Text("Select Image")
+                        .font(Theme.Typography.body)
+                        .foregroundColor(Theme.Colors.textSecondary)
                     }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 200)
+                  }
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("上传") {
-                        if let data = selectedImage {
-                            onUpload(selectedType, data, name.isEmpty ? nil : name)
-                            dismiss()
-                        }
-                    }
-                    .disabled(selectedImage == nil)
-                }
+              }
             }
-            .sheet(isPresented: $showImagePicker) {
-                ImagePicker { data in
-                    selectedImage = data
-                }
+
+            // Name Input
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Name (Optional)")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.textTertiary)
+
+              AppInput(text: $name, placeholder: "Enter name", icon: "pencil")
             }
+
+            Spacer(minLength: 20)
+
+            PrimaryButton("Upload", icon: "arrow.up.circle") {
+              if let data = selectedImage {
+                onUpload(selectedType, data, name.isEmpty ? nil : name)
+                dismiss()
+              }
+            }
+            .disabled(selectedImage == nil)
+            .opacity(selectedImage == nil ? 0.5 : 1)
+          }
+          .padding(Theme.Layout.padding)
         }
+      }
+      .navigationTitle("Upload Asset")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .navigationBarLeading) {
+          Button("Cancel") { dismiss() }
+        }
+      }
+      .sheet(isPresented: $showImagePicker) {
+        ImagePicker { data in
+          selectedImage = data
+        }
+      }
     }
+  }
 }
 
 /// Simple flow layout for tags
 struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-    
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
+  var spacing: CGFloat = 8
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+    return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
+  }
+
+  func placeSubviews(
+    in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+  ) {
+    let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+    let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
+
+    for (subview, offset) in zip(subviews, offsets) {
+      subview.place(
+        at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
     }
-    
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
-        
-        for (subview, offset) in zip(subviews, offsets) {
-            subview.place(at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
-        }
+  }
+
+  private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (
+    offsets: [CGPoint], size: CGSize
+  ) {
+    var offsets: [CGPoint] = []
+    var currentX: CGFloat = 0
+    var currentY: CGFloat = 0
+    var lineHeight: CGFloat = 0
+    var maxWidth: CGFloat = 0
+
+    for size in sizes {
+      if currentX + size.width > containerWidth && currentX > 0 {
+        currentX = 0
+        currentY += lineHeight + spacing
+        lineHeight = 0
+      }
+
+      offsets.append(CGPoint(x: currentX, y: currentY))
+      lineHeight = max(lineHeight, size.height)
+      currentX += size.width + spacing
+      maxWidth = max(maxWidth, currentX)
     }
-    
-    private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (offsets: [CGPoint], size: CGSize) {
-        var offsets: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var maxWidth: CGFloat = 0
-        
-        for size in sizes {
-            if currentX + size.width > containerWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-            
-            offsets.append(CGPoint(x: currentX, y: currentY))
-            lineHeight = max(lineHeight, size.height)
-            currentX += size.width + spacing
-            maxWidth = max(maxWidth, currentX)
-        }
-        
-        return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
-    }
+
+    return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
+  }
 }
-
-#Preview {
-    AssetsView()
-}
-
-
-
-
-
