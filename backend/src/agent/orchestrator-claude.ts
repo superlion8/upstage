@@ -246,8 +246,8 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
         for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
             logger.info(`Claude iteration ${iteration + 1}/${MAX_ITERATIONS}`);
 
-            // Create message with extended thinking
-            const response = await client.messages.create({
+            // Start streaming from Claude
+            const stream = client.messages.stream({
                 model,
                 max_tokens: 16000,
                 thinking: {
@@ -259,27 +259,29 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                 messages,
             });
 
-            const toolUses: Array<{ id: string; name: string; input: any }> = [];
+            // Iterate over the stream
+            for await (const event of stream) {
+                if (event.type === 'content_block_delta') {
+                    if (event.delta.type === 'thinking') {
+                        yield {
+                            type: 'thinking',
+                            data: { content: event.delta.thinking },
+                        };
+                    } else if (event.delta.type === 'text_delta') {
+                        yield {
+                            type: 'text_delta',
+                            data: { delta: event.delta.text },
+                        };
+                    }
+                }
+            }
 
-            logger.info('Claude response received', {
-                stopReason: response.stop_reason,
-                contentBlocks: response.content.length,
-            });
+            // Final message result
+            const response = await stream.finalMessage();
 
-            // Process response content - extract thinking and text
+            // Collect tool uses from final message
             for (const block of response.content) {
-                if (block.type === 'thinking') {
-                    // Emit thinking content
-                    yield {
-                        type: 'thinking',
-                        data: { content: block.thinking },
-                    };
-                } else if (block.type === 'text') {
-                    yield {
-                        type: 'text_delta',
-                        data: { delta: block.text },
-                    };
-                } else if (block.type === 'tool_use') {
+                if (block.type === 'tool_use') {
                     toolUses.push({
                         id: block.id,
                         name: block.name,
@@ -287,6 +289,12 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                     });
                 }
             }
+
+            logger.info('Claude response complete', {
+                stopReason: response.stop_reason,
+                contentBlocks: response.content.length,
+                hasToolUses: toolUses.length > 0
+            });
 
             // If no tool calls, we're done
             if (response.stop_reason !== 'tool_use' || toolUses.length === 0) {
