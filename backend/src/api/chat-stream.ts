@@ -144,33 +144,42 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       let finalText = '';
       let generatedImages: any[] = [];
 
+      // Heartbeat to keep connection alive during long tool calls
+      const keepAlive = setInterval(() => {
+        reply.raw.write(': heartbeat\n\n');
+      }, 15000);
+
       // Run Claude agent with streaming
       const stream = runClaudeAgentStream(agentInput);
 
-      for await (const event of stream) {
-        // Forward event to client
-        sendSSE(reply, event.type, event.data);
+      try {
+        for await (const event of stream) {
+          // Forward event to client
+          sendSSE(reply, event.type, event.data);
 
-        // Collect data
-        switch (event.type) {
-          case 'tool_result':
-            toolCalls.push({
-              tool: event.data.tool,
-              arguments: event.data.arguments,
-              result: event.data.result,
-              timestamp: new Date(),
-            });
-            if (event.data.result?.images) {
-              generatedImages.push(...event.data.result.images);
-            }
-            break;
-          case 'text_delta':
-            finalText += event.data.delta;
-            break;
-          case 'image':
-            generatedImages.push(event.data);
-            break;
+          // Collect data
+          switch (event.type) {
+            case 'tool_result':
+              toolCalls.push({
+                tool: event.data.tool,
+                arguments: event.data.arguments,
+                result: event.data.result,
+                timestamp: new Date(),
+              });
+              if (event.data.result?.images) {
+                generatedImages.push(...event.data.result.images);
+              }
+              break;
+            case 'text_delta':
+              finalText += event.data.delta;
+              break;
+            case 'image':
+              generatedImages.push(event.data);
+              break;
+          }
         }
+      } finally {
+        clearInterval(keepAlive);
       }
 
       // Save assistant message
