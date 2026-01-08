@@ -52,7 +52,7 @@ import {
 } from './scrapers.js';
 
 import { z } from 'zod';
-import { createLogger } from '../lib/logger.js';
+import { createLogger } from '../../lib/logger.js';
 
 const logger = createLogger('agent:tools');
 
