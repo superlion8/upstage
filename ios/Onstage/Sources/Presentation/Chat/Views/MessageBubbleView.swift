@@ -40,7 +40,6 @@ struct MessageBubbleView: View {
                       .padding(4)
                       .background(.ultraThinMaterial)
                       .clipShape(RoundedRectangle(cornerRadius: 4))
-                      .padding(4)
                   }
               }
             }
@@ -53,9 +52,10 @@ struct MessageBubbleView: View {
             .padding(.bottom, 4)
         }
 
-        // Text content
+        // Text content (Markdown supported)
         if let text = message.content.text, !text.isEmpty {
-          Text(text)
+          Markdown(text)
+            .markdownTheme(.messageTheme(isUser: isUser))
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(isUser ? Color.accentColor : Color(.systemGray6))
