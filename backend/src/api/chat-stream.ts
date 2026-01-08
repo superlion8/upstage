@@ -218,44 +218,46 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       const stream = runClaudeAgentStream(agentInput);
 
       try {
-        // Collect data
-        switch (event.type) {
-          case 'tool_result':
-            const leanResult = { ...event.data.result };
-            if (leanResult.images) {
-              // Persist images and replace with URLs
-              for (let i = 0; i < leanResult.images.length; i++) {
-                const img = leanResult.images[i];
-                const url = await persistImage(img.id, img.url || img.data, userId);
-                img.url = url;
-                delete img.data;
-                generatedImages.push({ id: img.id, url });
+        for await (const event of stream) {
+          // Collect data
+          switch (event.type) {
+            case 'tool_result':
+              const leanResult = { ...event.data.result };
+              if (leanResult.images) {
+                // Persist images and replace with URLs
+                for (let i = 0; i < leanResult.images.length; i++) {
+                  const img = leanResult.images[i];
+                  const url = await persistImage(img.id, img.url || img.data, userId);
+                  img.url = url;
+                  delete img.data;
+                  generatedImages.push({ id: img.id, url });
+                }
               }
-            }
 
-            toolCalls.push({
-              tool: event.data.tool,
-              arguments: event.data.arguments,
-              result: leanResult,
-              timestamp: new Date(),
-            });
-            break;
-          case 'text_delta':
-            finalText += event.data.delta;
-            break;
-          case 'image':
-            const persistedUrl = await persistImage(event.data.id, event.data.url, userId);
-            const leanImage = { ...event.data, url: persistedUrl };
-            delete leanImage.data;
-            generatedImages.push(leanImage);
+              toolCalls.push({
+                tool: event.data.tool,
+                arguments: event.data.arguments,
+                result: leanResult,
+                timestamp: new Date(),
+              });
+              break;
+            case 'text_delta':
+              finalText += event.data.delta;
+              break;
+            case 'image':
+              const persistedUrl = await persistImage(event.data.id, event.data.url, userId);
+              const leanImage = { ...event.data, url: persistedUrl };
+              delete leanImage.data;
+              generatedImages.push(leanImage);
 
-            // Send modified event with URL
-            sendSSE(reply, event.type, leanImage);
-            continue; // Skip the default sendSSE below
+              // Send modified event with URL
+              sendSSE(reply, event.type, leanImage);
+              continue; // Skip the default sendSSE below
+          }
+
+          // Forward event to client (if not already handled)
+          sendSSE(reply, event.type, event.data);
         }
-
-        // Forward event to client (if not already handled)
-        sendSSE(reply, event.type, event.data);
       } finally {
         clearInterval(keepAlive);
       }
