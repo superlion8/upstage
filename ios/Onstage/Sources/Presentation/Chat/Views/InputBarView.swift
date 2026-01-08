@@ -75,21 +75,30 @@ struct InputBarView: View {
             .focused($isFocused)
             .opacity(audioRecorder.isRecording ? 0 : 1)
             .allowsHitTesting(!audioRecorder.isRecording)
-            .highPriorityGesture(
-              DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                  if text.isEmpty && !isLoading && !audioRecorder.isRecording {
-                    startVoiceRecording()
-                  }
-                  if audioRecorder.isRecording {
-                    handleDragChanged(value)
-                  }
+            .overlay(
+              Group {
+                // Voice Recording Trigger Layer (Only active when text is empty OR recording is in progress)
+                if (text.isEmpty || audioRecorder.isRecording) && !isLoading {
+                  Color.clear
+                    .contentShape(RoundedRectangle(cornerRadius: 20))
+                    .highPriorityGesture(
+                      DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                          if !isLoading && !audioRecorder.isRecording {
+                            startVoiceRecording()
+                          }
+                          if audioRecorder.isRecording {
+                            handleDragChanged(value)
+                          }
+                        }
+                        .onEnded { _ in
+                          if audioRecorder.isRecording {
+                            stopVoiceRecording()
+                          }
+                        }
+                    )
                 }
-                .onEnded { _ in
-                  if audioRecorder.isRecording {
-                    stopVoiceRecording()
-                  }
-                }
+              }
             )
 
           // Recording Indicator (Overlaid for stability)
@@ -106,7 +115,7 @@ struct InputBarView: View {
                     .foregroundColor(.white)
                 }
               )
-              .allowsHitTesting(false)  // Let gestures pass through or handle here
+              .allowsHitTesting(false)
           }
         }
 
@@ -189,6 +198,8 @@ struct InputBarView: View {
       let transcribedText = audioRecorder.stopRecording()
       if !transcribedText.isEmpty {
         text = transcribedText
+        // Auto focus after recording so user can edit immediately
+        isFocused = true
       }
     }
 
