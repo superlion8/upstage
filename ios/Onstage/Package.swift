@@ -19,6 +19,7 @@ let package = Package(
     // Keychain
     .package(url: "https://github.com/kishikawakatsumi/KeychainAccess.git", from: "4.2.0"),
     // Markdown Rendering
+    .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.4.0"),
   ],
   targets: [
     .target(
@@ -27,6 +28,7 @@ let package = Package(
         "Alamofire",
         "Nuke",
         "KeychainAccess",
+        .product(name: "MarkdownUI", package: "swift-markdown-ui"),
       ],
       path: "Sources"),
     .testTarget(
