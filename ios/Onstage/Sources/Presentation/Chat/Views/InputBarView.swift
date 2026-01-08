@@ -73,8 +73,29 @@ struct InputBarView: View {
               .background(Color(.systemGray6))
               .clipShape(RoundedRectangle(cornerRadius: 20))
               .focused($isFocused)
+              .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.2)
+                  .onEnded { _ in
+                    if text.isEmpty && !isLoading {
+                      startVoiceRecording()
+                    }
+                  }
+              )
+              .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                  .onChanged { value in
+                    if audioRecorder.isRecording {
+                      handleDragChanged(value)
+                    }
+                  }
+                  .onEnded { _ in
+                    if audioRecorder.isRecording {
+                      stopVoiceRecording()
+                    }
+                  }
+              )
           } else {
-            // Voice recording status bar (View-only, gesture is on the button)
+            // Voice recording status bar
             RoundedRectangle(cornerRadius: 20)
               .fill(showCancelHint ? Color.red : Color.accentColor)
               .frame(height: 40)
@@ -91,32 +112,40 @@ struct InputBarView: View {
         }
 
         // Voice / Send button
-        Image(systemName: canSend ? "arrow.up.circle.fill" : "mic.circle.fill")
-          .font(.title)
-          .foregroundColor(canSend || !isLoading ? .accentColor : .gray)
-          .opacity(isLoading ? 0.5 : 1.0)
-          .gesture(
-            DragGesture(minimumDistance: 0)
-              .onChanged { value in
-                if !canSend && !isLoading {
-                  if !audioRecorder.isRecording {
-                    // Start recording after a small threshold
-                    startVoiceRecording()
-                  }
-                  dragOffset = value.translation.height
-                  showCancelHint = dragOffset < cancelThreshold
-                }
+        Button {
+          if canSend {
+            onSend()
+            isFocused = false
+          }
+        } label: {
+          Image(systemName: canSend ? "arrow.up.circle.fill" : "mic.circle.fill")
+            .font(.title)
+            .foregroundColor(canSend || !isLoading ? .accentColor : .gray)
+            .padding(4)
+            .contentShape(Rectangle())
+        }
+        .disabled(isLoading)
+        .simultaneousGesture(
+          LongPressGesture(minimumDuration: 0.1)
+            .onEnded { _ in
+              if !canSend && !isLoading {
+                startVoiceRecording()
               }
-              .onEnded { value in
-                if audioRecorder.isRecording {
-                  stopVoiceRecording()
-                } else if canSend && !isLoading && value.translation.height > -10 {
-                  // Small threshold to distinguish tap from swipe
-                  onSend()
-                  isFocused = false
-                }
+            }
+        )
+        .simultaneousGesture(
+          DragGesture(minimumDistance: 0)
+            .onChanged { value in
+              if audioRecorder.isRecording {
+                handleDragChanged(value)
               }
-          )
+            }
+            .onEnded { value in
+              if audioRecorder.isRecording {
+                stopVoiceRecording()
+              }
+            }
+        )
       }
       .padding(.horizontal)
       .padding(.vertical, 12)
@@ -130,6 +159,13 @@ struct InputBarView: View {
   }
 
   // MARK: - Voice Recording
+
+  private func handleDragChanged(_ value: DragGesture.Value) {
+    if audioRecorder.isRecording {
+      dragOffset = value.translation.height
+      showCancelHint = dragOffset < cancelThreshold
+    }
+  }
 
   private func startVoiceRecording() {
     isFocused = false
