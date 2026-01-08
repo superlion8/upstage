@@ -66,6 +66,37 @@ function getClaudeToolDefinitions(): Anthropic.Tool[] {
 }
 
 // ============================================
+// Helpers
+// ============================================
+
+/**
+ * Remove large binary data from tool results before sending to LLM context
+ */
+function getLeanResult(result: any): any {
+    if (!result) return result;
+    const lean = JSON.parse(JSON.stringify(result));
+
+    // Recursively strip large strings (base64)
+    const strip = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return;
+
+        for (const key in obj) {
+            if (typeof obj[key] === 'string') {
+                // Strip fields that typically contain base64 or large data URLs
+                if (key === 'data' || key === 'base64' || (key === 'url' && obj[key].startsWith('data:'))) {
+                    obj[key] = `[REMOVED_BINARY_DATA_${obj[key].length}_CHARS]`;
+                }
+            } else if (typeof obj[key] === 'object') {
+                strip(obj[key]);
+            }
+        }
+    };
+
+    strip(lean);
+    return lean;
+}
+
+// ============================================
 // Build Messages
 // ============================================
 
@@ -255,7 +286,7 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                     toolResults.push({
                         type: 'tool_result',
                         tool_use_id: toolUse.id,
-                        content: JSON.stringify(result),
+                        content: JSON.stringify(getLeanResult(result)),
                     });
 
                 } catch (error: any) {
