@@ -18,20 +18,29 @@ extension Theme {
       .emphasis {
         FontStyle(.italic)
       }
-      .heading1 {
-        FontSize(24)
-        FontWeight(.bold)
-        Padding(.vertical, 8)
+      .heading1 { configuration in
+        configuration.label
+          .markdownTextStyle {
+            FontSize(24)
+            FontWeight(.bold)
+          }
+          .padding(.vertical, 8)
       }
-      .heading2 {
-        FontSize(20)
-        FontWeight(.bold)
-        Padding(.vertical, 6)
+      .heading2 { configuration in
+        configuration.label
+          .markdownTextStyle {
+            FontSize(20)
+            FontWeight(.bold)
+          }
+          .padding(.vertical, 6)
       }
-      .heading3 {
-        FontSize(18)
-        FontWeight(.bold)
-        Padding(.vertical, 4)
+      .heading3 { configuration in
+        configuration.label
+          .markdownTextStyle {
+            FontSize(18)
+            FontWeight(.bold)
+          }
+          .padding(.vertical, 4)
       }
       .code {
         FontFamilyVariant(.monospaced)
@@ -39,19 +48,16 @@ extension Theme {
         BackgroundColor(isUser ? .white.opacity(0.2) : .gray.opacity(0.1))
       }
       .codeBlock { configuration in
-        ScrollView(.horizontal) {
-          configuration.label
-            .fixedSize(horizontal: false, vertical: true)
-            .relativeLineSpacing(.em(0.25))
-            .markdownTextStyle {
-              FontFamilyVariant(.monospaced)
-              FontSize(13)
-            }
-            .padding(12)
-        }
-        .background(isUser ? Color.white.opacity(0.1) : Color(.systemGray5))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .markdownMargin(top: .em(0.8), bottom: .em(0.8))
+        configuration.label
+          .relativeLineSpacing(.em(0.25))
+          .markdownTextStyle {
+            FontFamilyVariant(.monospaced)
+            FontSize(13)
+          }
+          .padding(12)
+          .background(isUser ? Color.white.opacity(0.1) : Color(.systemGray5))
+          .clipShape(RoundedRectangle(cornerRadius: 8))
+          .markdownMargin(top: .em(0.8), bottom: .em(0.8))
       }
       .listItem { configuration in
         configuration.label
