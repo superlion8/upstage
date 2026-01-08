@@ -1557,6 +1557,8 @@
 				<string>app.onstage.ios</string>
 				<key>PRODUCT_NAME</key>
 				<string>$(TARGET_NAME)</string>
+				<key>INFOPLIST_KEY_CFBundleDisplayName</key>
+				<string>UpStage</string>
 				<key>SWIFT_EMIT_LOC_STRINGS</key>
 				<string>YES</string>
 				<key>SWIFT_VERSION</key>
@@ -1616,6 +1618,8 @@
 				<string>app.onstage.ios</string>
 				<key>PRODUCT_NAME</key>
 				<string>$(TARGET_NAME)</string>
+				<key>INFOPLIST_KEY_CFBundleDisplayName</key>
+				<string>UpStage</string>
 				<key>SWIFT_EMIT_LOC_STRINGS</key>
 				<string>YES</string>
 				<key>SWIFT_VERSION</key>
