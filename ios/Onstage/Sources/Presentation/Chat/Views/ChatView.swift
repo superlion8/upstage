@@ -5,6 +5,9 @@ struct ChatView: View {
   @StateObject private var viewModel = ChatViewModel()
   @State private var showConversationList = false
 
+  // Callback to show Home page
+  var onShowHome: (() -> Void)?
+
   var body: some View {
     NavigationStack {
       ZStack(alignment: .bottom) {
@@ -46,6 +49,18 @@ struct ChatView: View {
                 .foregroundColor(Theme.Colors.textSecondary)
             }
             .padding(.leading, 8)
+
+            // Home/Menu Button
+            if let onShowHome = onShowHome {
+              Button {
+                onShowHome()
+              } label: {
+                Image(systemName: "square.grid.2x2")
+                  .font(.system(size: 20))
+                  .foregroundColor(Theme.Colors.textSecondary)
+              }
+              .padding(.leading, 8)
+            }
           }
           .padding(.horizontal, Theme.Layout.sidePadding)
           .padding(.bottom, 8)
