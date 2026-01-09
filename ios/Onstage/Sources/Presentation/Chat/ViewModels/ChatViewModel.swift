@@ -400,23 +400,53 @@ final class ChatViewModel: ObservableObject {
   }
 
   private func handleImageOutput(_ image: GeneratedImage) {
-    // Add to current tool block if exists
+    // Priority 1: Add to current tool block if exists
     if let id = currentToolBlockId,
       let index = blocks.firstIndex(where: { $0.id == id }),
       case .tool(var block) = blocks[index]
     {
       block.outputs.append(image)
       blocks[index] = .tool(block)
-    } else if let id = currentAssistantBlockId,
+      return
+    }
+
+    // Priority 2: Add to current assistant block if exists
+    if let id = currentAssistantBlockId,
       let index = blocks.firstIndex(where: { $0.id == id }),
       case .assistantMessage(var block) = blocks[index]
     {
-      // Add to assistant message
       var images = block.generatedImages ?? []
       images.append(image)
       block.generatedImages = images
       blocks[index] = .assistantMessage(block)
+      return
     }
+
+    // Priority 3: Find the last tool block and add image there
+    for i in stride(from: blocks.count - 1, through: 0, by: -1) {
+      if case .tool(var block) = blocks[i] {
+        block.outputs.append(image)
+        blocks[i] = .tool(block)
+        return
+      }
+    }
+
+    // Priority 4: Find last assistant block and add there
+    for i in stride(from: blocks.count - 1, through: 0, by: -1) {
+      if case .assistantMessage(var block) = blocks[i] {
+        var images = block.generatedImages ?? []
+        images.append(image)
+        block.generatedImages = images
+        blocks[i] = .assistantMessage(block)
+        return
+      }
+    }
+
+    // Priority 5: Create a new assistant block for the image
+    var newBlock = AssistantMessageBlock(text: "", status: .running)
+    newBlock.generatedImages = [image]
+    blocks.append(.assistantMessage(newBlock))
+    currentAssistantBlockId = newBlock.id
   }
 
   private func handleTextDelta(_ text: String) {
