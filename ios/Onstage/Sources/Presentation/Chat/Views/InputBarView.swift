@@ -232,18 +232,21 @@ struct ChatComposer: View {
     if mode == .cancelReady {
       // Cancel recording
       audioRecorder.cancelRecording()
+      mode = .idle
     } else if mode == .recording {
-      // Send voice
+      // Fill transcribed text into input (don't auto-send)
       let transcribed = audioRecorder.stopRecording()
       if !transcribed.isEmpty {
         text = transcribed
-        // Auto-send voice transcription
-        onSend()
+        // Switch to typing mode so user can review and send
+        mode = .typing
+        isTextFieldFocused = true
+      } else {
+        mode = .idle
       }
     }
 
-    // Reset state
-    mode = .idle
+    // Reset recording state
     dragOffset = 0
     showHUD = false
     recordingStartTime = nil
