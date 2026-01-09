@@ -181,27 +181,80 @@ final class ChatViewModel: ObservableObject {
 
     do {
       let messages = try await chatRepository.getMessages(conversationId: conversationId)
-      // Convert Message array to ChatBlock array
-      blocks = messages.map { message -> ChatBlock in
+      // Convert Message array to ChatBlock array, including agentSteps
+      var newBlocks: [ChatBlock] = []
+
+      for message in messages {
         if message.role == .user {
-          return .userMessage(
-            UserMessageBlock(
-              id: message.id,
-              text: message.content.text,
-              images: message.content.images,
-              createdAt: message.createdAt
-            ))
+          // User message
+          newBlocks.append(
+            .userMessage(
+              UserMessageBlock(
+                id: message.id,
+                text: message.content.text,
+                images: message.content.images,
+                createdAt: message.createdAt
+              )))
         } else {
-          return .assistantMessage(
-            AssistantMessageBlock(
-              id: message.id,
-              text: message.content.text ?? "",
-              status: .done,
-              generatedImages: message.content.generatedImages,
-              createdAt: message.createdAt
-            ))
+          // Assistant message with potential thinking and tool steps
+
+          // First, add thinking and tool blocks from agentSteps
+          if let steps = message.content.agentSteps {
+            for step in steps {
+              if step.type == .thinking {
+                // Thinking block - get content from result
+                let content = step.result?.message ?? step.description ?? ""
+                var thinkingBlock = ThinkingBlock(content: content)
+                thinkingBlock.status = .done
+                thinkingBlock.isExpanded = false
+                newBlocks.append(.thinking(thinkingBlock))
+              } else if step.type == .toolCall || step.type == .toolResult {
+                // Tool block
+                let toolName = step.tool ?? "Tool"
+                var toolBlock = ToolBlock(toolName: toolName)
+                toolBlock.status = step.status == .failed ? .failed : .done
+                // Convert arguments dict to string
+                if let args = step.arguments {
+                  let argsStr = args.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+                  toolBlock.inputs = argsStr
+                }
+                toolBlock.summary = step.description ?? step.result?.message ?? "Completed"
+                toolBlock.isExpanded = false
+                if let output = step.output {
+                  toolBlock.logs.append(output)
+                }
+                newBlocks.append(.tool(toolBlock))
+              }
+            }
+          }
+
+          // Then add the assistant message text (if any)
+          if let text = message.content.text, !text.isEmpty {
+            newBlocks.append(
+              .assistantMessage(
+                AssistantMessageBlock(
+                  id: message.id,
+                  text: text,
+                  status: .done,
+                  generatedImages: message.content.generatedImages,
+                  createdAt: message.createdAt
+                )))
+          } else if let images = message.content.generatedImages, !images.isEmpty {
+            // Message with only images
+            newBlocks.append(
+              .assistantMessage(
+                AssistantMessageBlock(
+                  id: message.id,
+                  text: "",
+                  status: .done,
+                  generatedImages: images,
+                  createdAt: message.createdAt
+                )))
+          }
         }
       }
+
+      blocks = newBlocks
     } catch {
       self.error = error.localizedDescription
     }
