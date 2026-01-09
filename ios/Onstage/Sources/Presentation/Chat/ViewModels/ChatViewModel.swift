@@ -185,84 +185,8 @@ final class ChatViewModel: ObservableObject {
       var newBlocks: [ChatBlock] = []
 
       for message in messages {
-        if message.role == .user {
-          // User message
-          newBlocks.append(
-            .userMessage(
-              UserMessageBlock(
-                id: message.id,
-                text: message.content.text,
-                images: message.content.images,
-                createdAt: message.createdAt
-              )))
-        } else {
-          // Assistant message with potential thinking and tool steps
-
-          // First, add thinking block from the thinking field (if present)
-          if let thinkingText = message.content.thinking, !thinkingText.isEmpty {
-            var thinkingBlock = ThinkingBlock(content: thinkingText)
-            thinkingBlock.status = .done
-            thinkingBlock.isExpanded = false
-            newBlocks.append(.thinking(thinkingBlock))
-          }
-
-          // Then, add tool blocks from agentSteps
-          if let steps = message.content.agentSteps {
-            for step in steps {
-              // Handle all tool-related steps (tool_call, tool_result, or thinking type)
-              if step.type == .toolCall || step.type == .toolResult {
-                // Tool block
-                let toolName = step.tool ?? "Tool"
-                var toolBlock = ToolBlock(toolName: toolName)
-                toolBlock.status = step.status == .failed ? .failed : .done
-                // Convert arguments dict to string
-                if let args = step.arguments {
-                  let argsStr = args.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
-                  toolBlock.inputs = argsStr
-                }
-                toolBlock.summary = step.description ?? step.result?.message ?? "Completed"
-                toolBlock.isExpanded = false
-                if let output = step.output {
-                  toolBlock.logs.append(output)
-                }
-                newBlocks.append(.tool(toolBlock))
-              } else if step.type == .thinking {
-                // Thinking step (if sent as a step instead of separate field)
-                let content = step.result?.message ?? step.description ?? ""
-                if !content.isEmpty {
-                  var thinkingBlock = ThinkingBlock(content: content)
-                  thinkingBlock.status = .done
-                  thinkingBlock.isExpanded = false
-                  newBlocks.append(.thinking(thinkingBlock))
-                }
-              }
-            }
-          }
-
-          // Then add the assistant message text (if any)
-          if let text = message.content.text, !text.isEmpty {
-            newBlocks.append(
-              .assistantMessage(
-                AssistantMessageBlock(
-                  id: message.id,
-                  text: text,
-                  status: .done,
-                  generatedImages: message.content.generatedImages,
-                  createdAt: message.createdAt
-                )))
-          } else if let images = message.content.generatedImages, !images.isEmpty {
-            // Message with only images
-            newBlocks.append(
-              .assistantMessage(
-                AssistantMessageBlock(
-                  id: message.id,
-                  text: "",
-                  status: .done,
-                  generatedImages: images,
-                  createdAt: message.createdAt
-                )))
-          }
-        }
+        let messageBlocks = MessageBlockFactory.createBlocks(from: message)
+        newBlocks.append(contentsOf: messageBlocks)
       }
 
       blocks = newBlocks
@@ -787,5 +711,94 @@ final class ChatViewModel: ObservableObject {
 
     // Send
     await sendMessage()
+  }
+}
+
+/// Factory for creating consistent ChatBlocks from Messages
+struct MessageBlockFactory {
+  static func createBlocks(from message: Message) -> [ChatBlock] {
+    var blocks: [ChatBlock] = []
+
+    // 1. User Message
+    if message.role == .user {
+      return [
+        .userMessage(
+          UserMessageBlock(
+            id: message.id,
+            text: message.content.text,
+            images: message.content.images,
+            createdAt: message.createdAt
+          ))
+      ]
+    }
+
+    // 2. Assistant Message
+
+    // A. Top-Level Thinking
+    if let thinkingText = message.content.thinking, !thinkingText.isEmpty {
+      var thinkingBlock = ThinkingBlock(content: thinkingText)
+      thinkingBlock.status = .done
+      thinkingBlock.isExpanded = false
+      blocks.append(.thinking(thinkingBlock))
+    }
+
+    // B. Agent Steps (Tools & Nested Thinking)
+    if let steps = message.content.agentSteps {
+      for step in steps {
+        if step.type == .toolCall || step.type == .toolResult {
+          let toolName = step.tool ?? "Unknown Tool"
+          var toolBlock = ToolBlock(
+            id: step.id,
+            toolName: toolName,
+            status: step.status == .failed ? .failed : .done,
+            inputs: formatArguments(step.arguments),
+            logs: step.output != nil ? [step.output!] : [],
+            outputs: [],
+            summary: step.description ?? step.result?.message ?? "Completed",
+            createdAt: step.timestamp
+          )
+          toolBlock.isExpanded = false
+          blocks.append(.tool(toolBlock))
+        } else if step.type == .thinking {
+          let content = step.result?.message ?? step.description ?? ""
+          if !content.isEmpty {
+            var thinkingBlock = ThinkingBlock(
+              id: step.id,
+              status: .done,
+              content: content,
+              createdAt: step.timestamp
+            )
+            thinkingBlock.isExpanded = false
+            blocks.append(.thinking(thinkingBlock))
+          }
+        }
+      }
+    }
+
+    // C. Text Content & Generated Images
+    let hasText = message.content.text != nil && !message.content.text!.isEmpty
+    let hasImages =
+      message.content.generatedImages != nil && !message.content.generatedImages!.isEmpty
+
+    if hasText || hasImages {
+      blocks.append(
+        .assistantMessage(
+          AssistantMessageBlock(
+            id: message.id,
+            text: message.content.text ?? "",
+            status: .done,
+            generatedImages: message.content.generatedImages,
+            createdAt: message.createdAt
+          )))
+    }
+
+    return blocks
+  }
+
+  private static func formatArguments(_ args: [String: AnyCodable]?) -> String? {
+    guard let args = args else { return nil }
+    return args.map { key, value in
+      "\(key): \(value.value)"
+    }.joined(separator: "\n")
   }
 }
