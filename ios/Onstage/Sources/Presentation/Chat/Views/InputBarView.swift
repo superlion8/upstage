@@ -98,12 +98,36 @@ struct ChatComposer: View {
         .frame(maxWidth: .infinity)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
-        .onTapGesture {
-          if mode != .recording && mode != .cancelReady {
-            mode = .typing
-            isTextFieldFocused = true
-          }
-        }
+        .gesture(
+          // Tap to type
+          TapGesture()
+            .onEnded {
+              if mode != .recording && mode != .cancelReady {
+                mode = .typing
+                isTextFieldFocused = true
+              }
+            }
+        )
+        .simultaneousGesture(
+          // Long-press to record (on entire input area)
+          DragGesture(minimumDistance: 0)
+            .onChanged { value in
+              // Only start if held for a moment (not just a tap)
+              if mode == .idle || mode == .typing {
+                // Wait for actual drag or hold
+                if value.time.timeIntervalSince1970 > 0.2 || abs(value.translation.height) > 5 {
+                  handleDragChanged(value)
+                }
+              } else {
+                handleDragChanged(value)
+              }
+            }
+            .onEnded { value in
+              if mode == .recording || mode == .cancelReady {
+                handleDragEnded()
+              }
+            }
+        )
 
         // Right side buttons
         if mode == .typing && !text.isEmpty {

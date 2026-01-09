@@ -137,6 +137,11 @@ struct ChatView: View {
           viewModel.addImage(data)
         }
       }
+      .sheet(isPresented: $viewModel.showCameraPicker) {
+        CameraPicker(onCapture: { data in
+          viewModel.addImage(data)
+        })
+      }
       .alert(
         "Error",
         isPresented: .init(
