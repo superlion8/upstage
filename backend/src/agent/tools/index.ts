@@ -731,6 +731,24 @@ function resolveImageRef(ref: string, imageContext: Record<string, string>): str
     return imageContext[ref];
   }
 
+  // 如果是 /api/chat/assets/gen_xxx.png 格式，提取 ID 来查找
+  if (ref.includes('/api/chat/assets/')) {
+    // Extract ID from URL: /api/chat/assets/gen_abc123.png -> gen_abc123
+    const match = ref.match(/\/api\/chat\/assets\/([^.]+)/);
+    if (match && match[1]) {
+      const extractedId = match[1];
+      if (imageContext[extractedId]) {
+        return imageContext[extractedId];
+      }
+      // Also try with gen_ prefix
+      if (imageContext[`gen_${extractedId}`]) {
+        return imageContext[`gen_${extractedId}`];
+      }
+    }
+    // If it's an API URL, just return it - it might be accessible
+    return ref;
+  }
+
   // 如果是 URL 或 Base64，直接返回
   if (ref.startsWith('http') || ref.startsWith('data:')) {
     return ref;
@@ -740,6 +758,11 @@ function resolveImageRef(ref: string, imageContext: Record<string, string>): str
   // JPEG base64 starts with /9j/, PNG starts with iVBOR
   if (ref.startsWith('/9j/') || ref.startsWith('iVBOR') || ref.length > 1000) {
     return ref;
+  }
+
+  // Try common label patterns
+  if (imageContext[`image_${ref}`]) {
+    return imageContext[`image_${ref}`];
   }
 
   throw new Error(`Unknown image reference: ${ref.substring(0, 50)}...`);

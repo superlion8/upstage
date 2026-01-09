@@ -205,7 +205,7 @@ final class ChatViewModel: ObservableObject {
             thinkingBlock.isExpanded = false
             newBlocks.append(.thinking(thinkingBlock))
           }
-          
+
           // Then, add tool blocks from agentSteps
           if let steps = message.content.agentSteps {
             for step in steps {
@@ -464,10 +464,10 @@ final class ChatViewModel: ObservableObject {
   }
 
   private func handleImageOutput(_ image: GeneratedImage) {
-    // Always add images to assistant message block (not tool block)
-    // This allows tap-to-enlarge and better UX
+    // Images should go in a NEW assistant block after the tool completes
+    // NOT in a previous assistant block that was created before the tool
 
-    // Priority 1: Add to current assistant block if exists
+    // Priority 1: If there's a current assistant block (created after tool), use it
     if let id = currentAssistantBlockId,
       let index = blocks.firstIndex(where: { $0.id == id }),
       case .assistantMessage(var block) = blocks[index]
@@ -479,18 +479,8 @@ final class ChatViewModel: ObservableObject {
       return
     }
 
-    // Priority 2: Find the last assistant block and add there
-    for i in stride(from: blocks.count - 1, through: 0, by: -1) {
-      if case .assistantMessage(var block) = blocks[i] {
-        var images = block.generatedImages ?? []
-        images.append(image)
-        block.generatedImages = images
-        blocks[i] = .assistantMessage(block)
-        return
-      }
-    }
-
-    // Priority 3: Create a new assistant block for the image
+    // Priority 2: Create a NEW assistant block for the image
+    // Don't search for old assistant blocks - that causes the wrong placement bug
     var newBlock = AssistantMessageBlock(text: "", status: .running)
     newBlock.generatedImages = [image]
     blocks.append(.assistantMessage(newBlock))
