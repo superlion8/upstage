@@ -49,110 +49,118 @@ struct ChatComposer: View {
           .padding(.bottom, 8)
       }
 
-      // Main Input Bar
-      HStack(spacing: 12) {
-        // Camera Button (Left)
-        Button(action: onOpenCamera) {
-          Image(systemName: "camera.fill")
-            .font(.system(size: 20))
+      // Main Input Bar (Capsule Style like screenshot)
+      HStack(spacing: 0) {
+        // Camera Button (Left, inside capsule)
+        Button {
+          onOpenCamera()
+        } label: {
+          Image(systemName: "camera")
+            .font(.system(size: 22))
             .foregroundColor(Theme.Colors.textSecondary)
-            .frame(width: 44, height: 44)
+            .frame(width: 48, height: 48)
         }
 
-        // Input Area (Center)
-        inputArea
+        // Input Area (Center, tappable)
+        ZStack(alignment: .leading) {
+          if mode == .recording || mode == .cancelReady {
+            // Recording state
+            HStack(spacing: 8) {
+              Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+              Text("正在录音...")
+                .font(Theme.Typography.body)
+                .foregroundColor(Theme.Colors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          } else if mode == .typing {
+            // Text input mode
+            TextField("发消息...", text: $text, axis: .vertical)
+              .font(Theme.Typography.body)
+              .foregroundColor(Theme.Colors.textPrimary)
+              .lineLimit(1...4)
+              .focused($isTextFieldFocused)
+              .submitLabel(.send)
+              .onSubmit {
+                if !text.isEmpty {
+                  onSend()
+                }
+              }
+          } else {
+            // Idle placeholder - tappable
+            Text("发消息或按住说话...")
+              .font(Theme.Typography.body)
+              .foregroundColor(Theme.Colors.textTertiary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .onTapGesture {
+          if mode != .recording && mode != .cancelReady {
+            mode = .typing
+            isTextFieldFocused = true
+          }
+        }
 
-        // Right Side Buttons
+        // Right side buttons
         if mode == .typing && !text.isEmpty {
-          // Send Button (when typing with text)
-          sendButton
+          // Send Button
+          Button {
+            onSend()
+            isTextFieldFocused = false
+            mode = .idle
+          } label: {
+            Image(systemName: "arrow.up.circle.fill")
+              .font(.system(size: 28))
+              .foregroundColor(Theme.Colors.accent)
+          }
+          .frame(width: 48, height: 48)
         } else {
-          // Mic Button
+          // Mic Button (with gesture)
           micButton
 
           // + Button (Photo Library)
-          Button(action: onOpenPhotoLibrary) {
-            Image(systemName: "plus")
-              .font(.system(size: 20, weight: .medium))
+          Button {
+            onOpenPhotoLibrary()
+          } label: {
+            Image(systemName: "plus.circle")
+              .font(.system(size: 28))
               .foregroundColor(Theme.Colors.textSecondary)
-              .frame(width: 44, height: 44)
           }
+          .frame(width: 48, height: 48)
         }
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
-      .background(composerBackground)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 6)
+      .background(
+        Capsule()
+          .fill(Color(UIColor.systemBackground))
+          .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+      )
+      .padding(.horizontal, 16)
+      .padding(.bottom, 8)
     }
     .animation(.spring(response: 0.3), value: mode)
     .animation(.spring(response: 0.3), value: showHUD)
     .onChange(of: isTextFieldFocused) { focused in
-      mode = focused ? .typing : .idle
-    }
-  }
-
-  // MARK: - Input Area
-
-  @ViewBuilder
-  private var inputArea: some View {
-    ZStack(alignment: .leading) {
-      if mode == .recording || mode == .cancelReady {
-        // Recording state
-        HStack(spacing: 8) {
-          Circle()
-            .fill(Color.red)
-            .frame(width: 8, height: 8)
-          Text("正在录音...")
-            .font(Theme.Typography.body)
-            .foregroundColor(Theme.Colors.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-      } else if mode == .typing || !text.isEmpty {
-        // Text input mode
-        TextField("发消息...", text: $text, axis: .vertical)
-          .font(Theme.Typography.body)
-          .foregroundColor(Theme.Colors.textPrimary)
-          .lineLimit(1...4)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 10)
-          .focused($isTextFieldFocused)
-          .onSubmit {
-            if !text.isEmpty {
-              onSend()
-            }
-          }
-      } else {
-        // Idle placeholder
-        Text("发消息或按住说话...")
-          .font(Theme.Typography.body)
-          .foregroundColor(Theme.Colors.textTertiary)
-          .padding(.horizontal, 16)
-          .frame(height: 44, alignment: .leading)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            isTextFieldFocused = true
-          }
+      if !focused && text.isEmpty {
+        mode = .idle
       }
     }
-    .background(Theme.Colors.surface1)
-    .clipShape(RoundedRectangle(cornerRadius: 22))
   }
 
   // MARK: - Mic Button with Gesture
 
   private var micButton: some View {
     ZStack {
-      Circle()
-        .fill(micButtonColor)
-        .frame(width: 44, height: 44)
-
-      Image(systemName: "mic.fill")
-        .font(.system(size: 18))
-        .foregroundColor(
-          mode == .recording || mode == .cancelReady ? .white : Theme.Colors.textSecondary)
+      Image(systemName: mode == .recording || mode == .cancelReady ? "mic.fill" : "waveform.circle")
+        .font(.system(size: 28))
+        .foregroundColor(micButtonColor)
     }
+    .frame(width: 48, height: 48)
     .scaleEffect(mode == .recording || mode == .cancelReady ? 1.2 : 1.0)
     .gesture(
       DragGesture(minimumDistance: 0)
@@ -172,34 +180,8 @@ struct ChatComposer: View {
     case .cancelReady:
       return Theme.Colors.error
     default:
-      return Theme.Colors.surface2
+      return Theme.Colors.textSecondary
     }
-  }
-
-  // MARK: - Send Button
-
-  private var sendButton: some View {
-    Button {
-      onSend()
-      isTextFieldFocused = false
-    } label: {
-      Image(systemName: "arrow.up")
-        .font(.system(size: 16, weight: .bold))
-        .foregroundColor(.white)
-        .frame(width: 44, height: 44)
-        .background(Theme.Colors.accent)
-        .clipShape(Circle())
-    }
-    .transition(.scale)
-  }
-
-  // MARK: - Composer Background
-
-  private var composerBackground: some View {
-    Rectangle()
-      .fill(Theme.Colors.bg0.opacity(0.95))
-      .background(.ultraThinMaterial)
-      .ignoresSafeArea()
   }
 
   // MARK: - Gesture Handlers
