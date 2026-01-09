@@ -34,138 +34,141 @@ struct ChatComposer: View {
   private let hudDelay: TimeInterval = 0.1
 
   var body: some View {
-    VStack(spacing: 0) {
-      // Recording HUD (floats above)
-      if showHUD {
-        RecordingHUD(isCancelReady: mode == .cancelReady)
-          .transition(.opacity.combined(with: .move(edge: .bottom)))
-          .padding(.bottom, 20)
-      }
-
-      // Selected Images Preview
-      if !selectedImages.isEmpty {
-        ImagePreviewStrip(images: selectedImages, onRemove: removeImage)
-          .padding(.horizontal, 16)
-          .padding(.bottom, 8)
-      }
-
-      // Main Input Bar (Capsule Style like screenshot)
-      HStack(spacing: 0) {
-        // Camera Button (Left, inside capsule)
-        Button {
-          onOpenCamera()
-        } label: {
-          Image(systemName: "camera")
-            .font(.system(size: 22))
-            .foregroundColor(Theme.Colors.textSecondary)
-            .frame(width: 48, height: 48)
+    ZStack {
+      // Main composer content
+      VStack(spacing: 0) {
+        // Selected Images Preview
+        if !selectedImages.isEmpty {
+          ImagePreviewStrip(images: selectedImages, onRemove: removeImage)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
 
-        // Input Area (Center, tappable)
-        ZStack(alignment: .leading) {
-          if mode == .recording || mode == .cancelReady {
-            // Recording state
-            HStack(spacing: 8) {
-              Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-              Text("正在录音...")
+        // Main Input Bar (Capsule Style like screenshot)
+        HStack(spacing: 0) {
+          // Camera Button (Left, inside capsule)
+          Button {
+            onOpenCamera()
+          } label: {
+            Image(systemName: "camera")
+              .font(.system(size: 22))
+              .foregroundColor(Theme.Colors.textSecondary)
+              .frame(width: 48, height: 48)
+          }
+
+          // Input Area (Center, tappable)
+          ZStack(alignment: .leading) {
+            if mode == .recording || mode == .cancelReady {
+              // Recording state
+              HStack(spacing: 8) {
+                Circle()
+                  .fill(Color.red)
+                  .frame(width: 8, height: 8)
+                Text("正在录音...")
+                  .font(Theme.Typography.body)
+                  .foregroundColor(Theme.Colors.textSecondary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+            } else if mode == .typing {
+              // Text input mode
+              TextField("发消息...", text: $text, axis: .vertical)
                 .font(Theme.Typography.body)
-                .foregroundColor(Theme.Colors.textSecondary)
+                .foregroundColor(Theme.Colors.textPrimary)
+                .lineLimit(1...4)
+                .focused($isTextFieldFocused)
+                .submitLabel(.send)
+                .onSubmit {
+                  if !text.isEmpty {
+                    onSend()
+                  }
+                }
+            } else {
+              // Idle placeholder - tappable
+              Text("发消息或按住说话...")
+                .font(Theme.Typography.body)
+                .foregroundColor(Theme.Colors.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-          } else if mode == .typing {
-            // Text input mode
-            TextField("发消息...", text: $text, axis: .vertical)
-              .font(Theme.Typography.body)
-              .foregroundColor(Theme.Colors.textPrimary)
-              .lineLimit(1...4)
-              .focused($isTextFieldFocused)
-              .submitLabel(.send)
-              .onSubmit {
-                if !text.isEmpty {
-                  onSend()
+          }
+          .frame(maxWidth: .infinity)
+          .frame(minHeight: 44)
+          .contentShape(Rectangle())
+          .gesture(
+            // Tap to type
+            TapGesture()
+              .onEnded {
+                if mode != .recording && mode != .cancelReady {
+                  mode = .typing
+                  isTextFieldFocused = true
                 }
               }
-          } else {
-            // Idle placeholder - tappable
-            Text("发消息或按住说话...")
-              .font(Theme.Typography.body)
-              .foregroundColor(Theme.Colors.textTertiary)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-        .gesture(
-          // Tap to type
-          TapGesture()
-            .onEnded {
-              if mode != .recording && mode != .cancelReady {
-                mode = .typing
-                isTextFieldFocused = true
-              }
-            }
-        )
-        .simultaneousGesture(
-          // Long-press to record (on entire input area)
-          DragGesture(minimumDistance: 0)
-            .onChanged { value in
-              // Only start if held for a moment (not just a tap)
-              if mode == .idle || mode == .typing {
-                // Wait for actual drag or hold
-                if value.time.timeIntervalSince1970 > 0.2 || abs(value.translation.height) > 5 {
+          )
+          .simultaneousGesture(
+            // Long-press to record (on entire input area)
+            DragGesture(minimumDistance: 0)
+              .onChanged { value in
+                // Only start if held for a moment (not just a tap)
+                if mode == .idle || mode == .typing {
+                  // Wait for actual drag or hold
+                  if value.time.timeIntervalSince1970 > 0.2 || abs(value.translation.height) > 5 {
+                    handleDragChanged(value)
+                  }
+                } else {
                   handleDragChanged(value)
                 }
-              } else {
-                handleDragChanged(value)
               }
-            }
-            .onEnded { value in
-              if mode == .recording || mode == .cancelReady {
-                handleDragEnded()
+              .onEnded { value in
+                if mode == .recording || mode == .cancelReady {
+                  handleDragEnded()
+                }
               }
+          )
+
+          // Right side buttons
+          if mode == .typing && !text.isEmpty {
+            // Send Button
+            Button {
+              onSend()
+              isTextFieldFocused = false
+              mode = .idle
+            } label: {
+              Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(Theme.Colors.accent)
             }
-        )
+            .frame(width: 48, height: 48)
+          } else {
+            // Mic Button (with gesture)
+            micButton
 
-        // Right side buttons
-        if mode == .typing && !text.isEmpty {
-          // Send Button
-          Button {
-            onSend()
-            isTextFieldFocused = false
-            mode = .idle
-          } label: {
-            Image(systemName: "arrow.up.circle.fill")
-              .font(.system(size: 28))
-              .foregroundColor(Theme.Colors.accent)
+            // + Button (Photo Library)
+            Button {
+              onOpenPhotoLibrary()
+            } label: {
+              Image(systemName: "plus.circle")
+                .font(.system(size: 28))
+                .foregroundColor(Theme.Colors.textSecondary)
+            }
+            .frame(width: 48, height: 48)
           }
-          .frame(width: 48, height: 48)
-        } else {
-          // Mic Button (with gesture)
-          micButton
-
-          // + Button (Photo Library)
-          Button {
-            onOpenPhotoLibrary()
-          } label: {
-            Image(systemName: "plus.circle")
-              .font(.system(size: 28))
-              .foregroundColor(Theme.Colors.textSecondary)
-          }
-          .frame(width: 48, height: 48)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+          Capsule()
+            .fill(Color(UIColor.systemBackground))
+            .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
       }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
-      .background(
-        Capsule()
-          .fill(Color(UIColor.systemBackground))
-          .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-      )
-      .padding(.horizontal, 16)
-      .padding(.bottom, 8)
+
+      // Fullscreen Recording Overlay
+      if showHUD {
+        RecordingOverlay(isCancelReady: mode == .cancelReady)
+          .transition(.opacity)
+          .zIndex(100)
+      }
     }
     .animation(.spring(response: 0.3), value: mode)
     .animation(.spring(response: 0.3), value: showHUD)
@@ -277,34 +280,70 @@ struct ChatComposer: View {
 }
 
 // MARK: - Recording HUD
+// MARK: - Recording Overlay (Fullscreen Blue Gradient Style)
 
-struct RecordingHUD: View {
+struct RecordingOverlay: View {
   let isCancelReady: Bool
+  @State private var waveformPhase: CGFloat = 0
+
+  // Blue gradient colors
+  private let gradientColors = [
+    Color(red: 0.4, green: 0.7, blue: 1.0),  // Light blue top
+    Color(red: 0.2, green: 0.5, blue: 0.9),  // Medium blue
+    Color(red: 0.1, green: 0.4, blue: 0.8),  // Deeper blue bottom
+  ]
+
+  private let cancelGradientColors = [
+    Color(red: 1.0, green: 0.4, blue: 0.4),  // Light red
+    Color(red: 0.9, green: 0.2, blue: 0.2),  // Red
+    Color(red: 0.7, green: 0.1, blue: 0.1),  // Dark red
+  ]
 
   var body: some View {
-    VStack(spacing: 12) {
-      // Waveform placeholder
-      HStack(spacing: 4) {
-        ForEach(0..<5, id: \.self) { i in
-          RoundedRectangle(cornerRadius: 2)
-            .fill(isCancelReady ? Color.white : Theme.Colors.accent)
-            .frame(width: 4, height: CGFloat.random(in: 12...32))
-        }
-      }
-      .frame(height: 40)
+    ZStack {
+      // Fullscreen gradient background
+      LinearGradient(
+        colors: isCancelReady ? cancelGradientColors : gradientColors,
+        startPoint: .top,
+        endPoint: .bottom
+      )
+      .ignoresSafeArea()
 
-      // Text
-      Text(isCancelReady ? "松手取消" : "松手发送，上移取消")
-        .font(Theme.Typography.caption)
-        .foregroundColor(isCancelReady ? .white : Theme.Colors.textPrimary)
+      VStack(spacing: 40) {
+        Spacer()
+
+        // Main text
+        Text(isCancelReady ? "松手取消" : "松手发送，上移取消")
+          .font(.system(size: 20, weight: .medium))
+          .foregroundColor(.white)
+
+        // Animated waveform dots
+        HStack(spacing: 3) {
+          ForEach(0..<40, id: \.self) { i in
+            Circle()
+              .fill(Color.white.opacity(0.8))
+              .frame(width: 4, height: 4)
+              .offset(y: waveformOffset(for: i))
+          }
+        }
+        .animation(
+          .easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: waveformPhase
+        )
+        .onAppear {
+          waveformPhase = 1
+        }
+
+        Spacer()
+        Spacer()
+      }
     }
-    .padding(.horizontal, 32)
-    .padding(.vertical, 20)
-    .background(
-      RoundedRectangle(cornerRadius: 20)
-        .fill(isCancelReady ? Theme.Colors.error : Theme.Colors.surface1)
-        .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
-    )
+    .transition(.opacity)
+  }
+
+  private func waveformOffset(for index: Int) -> CGFloat {
+    let phase = waveformPhase * .pi * 2
+    let offset = sin(phase + Double(index) * 0.3) * 8
+    return CGFloat(offset)
   }
 }
 
