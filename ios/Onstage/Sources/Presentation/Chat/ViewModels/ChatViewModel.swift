@@ -348,6 +348,10 @@ final class ChatViewModel: ObservableObject {
   private func handleToolStart(tool: String, args: [String: Any]?) {
     // Finalize thinking block if running
     finalizeThinkingBlock()
+    
+    // CRITICAL: Freeze pre-tool assistant message
+    // Any text_delta after this must go to a NEW post-tool message
+    currentAssistantBlockId = nil
 
     // Create tool block
     var toolBlock = ToolBlock(toolName: tool)
@@ -373,6 +377,10 @@ final class ChatViewModel: ObservableObject {
 
     blocks[index] = .tool(block)
     currentToolBlockId = nil
+    
+    // CRITICAL: Force post-tool text to create a NEW message block
+    // Do NOT reuse pre-tool message
+    currentAssistantBlockId = nil
 
     // Auto-collapse after delay
     let blockId = block.id
