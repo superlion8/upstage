@@ -81,6 +81,9 @@ struct ChatView: View {
           audioRecorder: viewModel.audioRecorder,
           isLoading: viewModel.isLoading,
           onSend: {
+            // Dismiss keyboard first
+            UIApplication.shared.sendAction(
+              #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             Task {
               await viewModel.sendMessage()
             }

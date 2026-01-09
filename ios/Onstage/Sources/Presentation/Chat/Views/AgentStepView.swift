@@ -361,48 +361,54 @@ struct AssistantMessageBubble: View {
 
   var body: some View {
     HStack {
-      VStack(alignment: .leading, spacing: 8) {
-        // Text content
-        if !block.text.isEmpty {
-          Text(block.text)
-            .font(Theme.Typography.body)
-            .foregroundColor(Theme.Colors.textPrimary)
-            .textSelection(.enabled)
-        }
+      GlassCard(padding: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+          // Text content
+          if !block.text.isEmpty {
+            Text(block.text)
+              .font(Theme.Typography.body)
+              .foregroundColor(Theme.Colors.textPrimary)
+              .textSelection(.enabled)
+              .padding(16)
+          }
 
-        // Generated images
-        if let images = block.generatedImages, !images.isEmpty {
-          ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-              ForEach(images) { image in
-                AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
-                  switch phase {
-                  case .success(let img):
-                    img
-                      .resizable()
-                      .aspectRatio(contentMode: .fill)
-                      .frame(width: 120, height: 120)
-                      .clipShape(RoundedRectangle(cornerRadius: 12))
-                  default:
-                    RoundedRectangle(cornerRadius: 12)
-                      .fill(Theme.Colors.surface2)
-                      .frame(width: 120, height: 120)
-                      .overlay(ProgressView())
+          // Generated images
+          if let images = block.generatedImages, !images.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+              HStack(spacing: 8) {
+                ForEach(images) { image in
+                  AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
+                    switch phase {
+                    case .success(let img):
+                      img
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 120, height: 120)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    default:
+                      RoundedRectangle(cornerRadius: 12)
+                        .fill(Theme.Colors.surface2)
+                        .frame(width: 120, height: 120)
+                        .overlay(ProgressView())
+                    }
                   }
                 }
               }
+              .padding(.horizontal, 16)
+              .padding(.bottom, 12)
             }
           }
-        }
 
-        // Loading indicator for running state
-        if block.status == .running && block.text.isEmpty {
-          HStack(spacing: 4) {
-            ProgressView()
-              .scaleEffect(0.7)
-            Text("Generating...")
-              .font(Theme.Typography.caption)
-              .foregroundColor(Theme.Colors.textTertiary)
+          // Loading indicator for running state
+          if block.status == .running && block.text.isEmpty {
+            HStack(spacing: 4) {
+              ProgressView()
+                .scaleEffect(0.7)
+              Text("Generating...")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.textTertiary)
+            }
+            .padding(16)
           }
         }
       }
