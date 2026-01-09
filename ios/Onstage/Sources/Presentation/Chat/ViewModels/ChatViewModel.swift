@@ -198,17 +198,19 @@ final class ChatViewModel: ObservableObject {
         } else {
           // Assistant message with potential thinking and tool steps
 
-          // First, add thinking and tool blocks from agentSteps
+          // First, add thinking block from the thinking field (if present)
+          if let thinkingText = message.content.thinking, !thinkingText.isEmpty {
+            var thinkingBlock = ThinkingBlock(content: thinkingText)
+            thinkingBlock.status = .done
+            thinkingBlock.isExpanded = false
+            newBlocks.append(.thinking(thinkingBlock))
+          }
+          
+          // Then, add tool blocks from agentSteps
           if let steps = message.content.agentSteps {
             for step in steps {
-              if step.type == .thinking {
-                // Thinking block - get content from result
-                let content = step.result?.message ?? step.description ?? ""
-                var thinkingBlock = ThinkingBlock(content: content)
-                thinkingBlock.status = .done
-                thinkingBlock.isExpanded = false
-                newBlocks.append(.thinking(thinkingBlock))
-              } else if step.type == .toolCall || step.type == .toolResult {
+              // Handle all tool-related steps (tool_call, tool_result, or thinking type)
+              if step.type == .toolCall || step.type == .toolResult {
                 // Tool block
                 let toolName = step.tool ?? "Tool"
                 var toolBlock = ToolBlock(toolName: toolName)
@@ -224,6 +226,15 @@ final class ChatViewModel: ObservableObject {
                   toolBlock.logs.append(output)
                 }
                 newBlocks.append(.tool(toolBlock))
+              } else if step.type == .thinking {
+                // Thinking step (if sent as a step instead of separate field)
+                let content = step.result?.message ?? step.description ?? ""
+                if !content.isEmpty {
+                  var thinkingBlock = ThinkingBlock(content: content)
+                  thinkingBlock.status = .done
+                  thinkingBlock.isExpanded = false
+                  newBlocks.append(.thinking(thinkingBlock))
+                }
               }
             }
           }

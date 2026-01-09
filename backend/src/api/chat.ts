@@ -315,6 +315,16 @@ export async function chatRoutes(fastify: FastifyInstance) {
         text: msg.textContent,
         images: msg.imageUrls,
         generatedImages: msg.generatedImageUrls,
+        // Include agent steps (from stored toolCalls)
+        agentSteps: msg.toolCalls?.map((tc: any) => ({
+          type: 'tool_call',
+          tool: tc.tool,
+          arguments: tc.args || tc.arguments,
+          result: tc.result,
+          status: tc.result?.success === false ? 'failed' : 'success',
+          timestamp: tc.timestamp || msg.createdAt,
+        })),
+        thinking: msg.thinking,
         createdAt: msg.createdAt,
       })),
     });
