@@ -359,6 +359,7 @@ struct UserMessageBubble: View {
 
 struct AssistantMessageBubble: View {
   @Binding var block: AssistantMessageBlock
+  @State private var selectedImageURL: String?
 
   var body: some View {
     HStack {
@@ -372,10 +373,10 @@ struct AssistantMessageBubble: View {
               .padding(16)
           }
 
-          // Generated images
+          // Generated images (tappable to enlarge)
           if let images = block.generatedImages, !images.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
-              HStack(spacing: 8) {
+              HStack(spacing: 12) {
                 ForEach(images) { image in
                   AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
                     switch phase {
@@ -383,12 +384,15 @@ struct AssistantMessageBubble: View {
                       img
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: 120, height: 120)
+                        .frame(width: 140, height: 180)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .onTapGesture {
+                          selectedImageURL = image.fullURL
+                        }
                     default:
                       RoundedRectangle(cornerRadius: 12)
                         .fill(Theme.Colors.surface2)
-                        .frame(width: 120, height: 120)
+                        .frame(width: 140, height: 180)
                         .overlay(ProgressView())
                     }
                   }
@@ -413,6 +417,84 @@ struct AssistantMessageBubble: View {
         }
       }
       Spacer()
+    }
+    .fullScreenCover(
+      item: Binding(
+        get: { selectedImageURL.map { ImagePreviewItem(url: $0) } },
+        set: { selectedImageURL = $0?.url }
+      )
+    ) { item in
+      ImageFullscreenView(imageURL: item.url, onDismiss: { selectedImageURL = nil })
+    }
+  }
+}
+
+// MARK: - Image Preview Item (for fullscreen)
+
+struct ImagePreviewItem: Identifiable {
+  let id = UUID()
+  let url: String
+}
+
+// MARK: - Fullscreen Image View
+
+struct ImageFullscreenView: View {
+  let imageURL: String
+  let onDismiss: () -> Void
+  @State private var scale: CGFloat = 1.0
+
+  var body: some View {
+    ZStack {
+      Color.black.ignoresSafeArea()
+
+      AsyncImage(url: URL(string: imageURL)) { phase in
+        switch phase {
+        case .success(let image):
+          image
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .scaleEffect(scale)
+            .gesture(
+              MagnificationGesture()
+                .onChanged { value in
+                  scale = value
+                }
+                .onEnded { _ in
+                  withAnimation { scale = 1.0 }
+                }
+            )
+        case .failure:
+          VStack {
+            Image(systemName: "exclamationmark.triangle")
+              .font(.largeTitle)
+              .foregroundColor(.white)
+            Text("Failed to load image")
+              .foregroundColor(.white)
+          }
+        default:
+          ProgressView()
+            .tint(.white)
+        }
+      }
+
+      // Close button
+      VStack {
+        HStack {
+          Spacer()
+          Button {
+            onDismiss()
+          } label: {
+            Image(systemName: "xmark.circle.fill")
+              .font(.system(size: 32))
+              .foregroundColor(.white.opacity(0.8))
+          }
+          .padding(20)
+        }
+        Spacer()
+      }
+    }
+    .onTapGesture {
+      onDismiss()
     }
   }
 }
