@@ -5,6 +5,9 @@
  */
 
 import Fastify from 'fastify';
+
+// Immediate debug log
+try { process.stdout.write('Resource Monitor: Backend Starting...\n'); } catch (e) { }
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
