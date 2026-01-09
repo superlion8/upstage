@@ -280,72 +280,132 @@ struct ChatComposer: View {
 }
 
 // MARK: - Recording HUD
-// MARK: - Recording Overlay (Partial Height Blue Gradient Style)
+// MARK: - Recording Overlay (Arc Blur Gradient Style)
 
 struct RecordingOverlay: View {
   let isCancelReady: Bool
   @State private var waveformPhase: CGFloat = 0
 
-  // Blue gradient colors
-  private let gradientColors = [
-    Color(red: 0.4, green: 0.75, blue: 1.0),  // Light blue top
-    Color(red: 0.2, green: 0.55, blue: 0.95),  // Medium blue
-    Color(red: 0.15, green: 0.45, blue: 0.85),  // Deeper blue bottom
-  ]
-
-  private let cancelGradientColors = [
-    Color(red: 1.0, green: 0.5, blue: 0.5),  // Light red
-    Color(red: 0.95, green: 0.3, blue: 0.3),  // Red
-    Color(red: 0.8, green: 0.15, blue: 0.15),  // Dark red
-  ]
-
   var body: some View {
-    VStack(spacing: 0) {
-      // Fixed height panel (not fullscreen)
-      ZStack {
-        // Gradient background
-        LinearGradient(
-          colors: isCancelReady ? cancelGradientColors : gradientColors,
-          startPoint: .top,
-          endPoint: .bottom
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    ZStack(alignment: .bottom) {
+      // Arc-shaped gradient background with blur edge
+      ArcGradientBackground(isCancelReady: isCancelReady)
 
-        VStack(spacing: 24) {
-          // Main text
-          Text(isCancelReady ? "松手取消" : "松手发送，上移取消")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundColor(.white)
+      // Content
+      VStack(spacing: 20) {
+        // Main text
+        Text(isCancelReady ? "松手取消" : "松手发送，上移取消")
+          .font(.system(size: 17, weight: .medium))
+          .foregroundColor(.white)
 
-          // Animated waveform dots
-          HStack(spacing: 3) {
-            ForEach(0..<40, id: \.self) { i in
-              Circle()
-                .fill(Color.white.opacity(0.85))
-                .frame(width: 4, height: 4)
-                .offset(y: waveformOffset(for: i))
-            }
-          }
-          .animation(
-            .easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: waveformPhase
-          )
-          .onAppear {
-            waveformPhase = 1
+        // Animated waveform dots
+        HStack(spacing: 3) {
+          ForEach(0..<50, id: \.self) { i in
+            Circle()
+              .fill(Color.white.opacity(0.9))
+              .frame(width: 4, height: 4)
+              .offset(y: waveformOffset(for: i))
           }
         }
-        .padding(.vertical, 32)
+        .animation(
+          .easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: waveformPhase
+        )
+        .onAppear {
+          waveformPhase = 1
+        }
       }
-      .frame(height: 140)
-      .padding(.horizontal, 16)
-      .padding(.bottom, 8)
+      .padding(.bottom, 40)
     }
+    .frame(height: 200)
     .transition(.move(edge: .bottom).combined(with: .opacity))
   }
 
   private func waveformOffset(for index: Int) -> CGFloat {
     let phase = waveformPhase * .pi * 2
-    let offset = sin(phase + Double(index) * 0.3) * 8
+    let offset = sin(phase + Double(index) * 0.25) * 6
     return CGFloat(offset)
+  }
+}
+
+// MARK: - Arc Gradient Background Shape
+
+struct ArcGradientBackground: View {
+  let isCancelReady: Bool
+
+  private var topColor: Color {
+    isCancelReady
+      ? Color(red: 1.0, green: 0.6, blue: 0.6).opacity(0.0)
+      : Color(red: 0.5, green: 0.8, blue: 1.0).opacity(0.0)
+  }
+
+  private var middleColor: Color {
+    isCancelReady
+      ? Color(red: 0.95, green: 0.35, blue: 0.35) : Color(red: 0.3, green: 0.6, blue: 0.95)
+  }
+
+  private var bottomColor: Color {
+    isCancelReady
+      ? Color(red: 0.85, green: 0.2, blue: 0.2) : Color(red: 0.15, green: 0.45, blue: 0.85)
+  }
+
+  var body: some View {
+    ZStack {
+      // Main gradient with elliptical arc top
+      EllipticalArc()
+        .fill(
+          LinearGradient(
+            stops: [
+              .init(color: topColor, location: 0.0),
+              .init(color: middleColor.opacity(0.85), location: 0.3),
+              .init(color: bottomColor, location: 1.0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+        )
+
+      // Soft blur overlay at top edge
+      EllipticalArc()
+        .fill(
+          LinearGradient(
+            colors: [
+              Color.clear,
+              middleColor.opacity(0.3),
+            ],
+            startPoint: .top,
+            endPoint: .center
+          )
+        )
+        .blur(radius: 20)
+    }
+  }
+}
+
+// MARK: - Elliptical Arc Shape
+
+struct EllipticalArc: Shape {
+  func path(in rect: CGRect) -> Path {
+    var path = Path()
+
+    // Start from bottom left
+    path.move(to: CGPoint(x: 0, y: rect.height))
+
+    // Line to the left side where arc starts (about 60% down)
+    path.addLine(to: CGPoint(x: 0, y: rect.height * 0.4))
+
+    // Curved arc at top (elliptical curve)
+    path.addQuadCurve(
+      to: CGPoint(x: rect.width, y: rect.height * 0.4),
+      control: CGPoint(x: rect.width / 2, y: -rect.height * 0.1)
+    )
+
+    // Line down right side
+    path.addLine(to: CGPoint(x: rect.width, y: rect.height))
+
+    // Close the path
+    path.closeSubpath()
+
+    return path
   }
 }
 
