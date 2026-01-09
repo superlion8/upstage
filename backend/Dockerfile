@@ -14,7 +14,8 @@ COPY . .
 
 # Set environment
 ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
 
-# Start using tsx directly from source to bypass compilation issues
-# This is a diagnostic step to ensure logs are visible and app starts
-CMD ["npx", "tsx", "src/index.ts"]
+# Start using tsx directly (avoid npx interactive prompt risk)
+CMD ["./node_modules/.bin/tsx", "src/index.ts"]
