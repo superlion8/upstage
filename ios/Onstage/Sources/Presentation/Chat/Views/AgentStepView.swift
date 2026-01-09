@@ -359,7 +359,7 @@ struct UserMessageBubble: View {
 
 struct AssistantMessageBubble: View {
   @Binding var block: AssistantMessageBlock
-  @State private var selectedImageURL: String?
+  @State private var selectedImageIndex: Int?
 
   var body: some View {
     HStack {
@@ -377,7 +377,7 @@ struct AssistantMessageBubble: View {
           if let images = block.generatedImages, !images.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
               HStack(spacing: 12) {
-                ForEach(images) { image in
+                ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
                   AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
                     switch phase {
                     case .success(let img):
@@ -387,7 +387,7 @@ struct AssistantMessageBubble: View {
                         .frame(width: 140, height: 180)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .onTapGesture {
-                          selectedImageURL = image.fullURL
+                          selectedImageIndex = index
                         }
                     default:
                       RoundedRectangle(cornerRadius: 12)
@@ -419,12 +419,18 @@ struct AssistantMessageBubble: View {
       Spacer()
     }
     .fullScreenCover(
-      item: Binding(
-        get: { selectedImageURL.map { ImagePreviewItem(url: $0) } },
-        set: { selectedImageURL = $0?.url }
+      isPresented: Binding(
+        get: { selectedImageIndex != nil },
+        set: { if !$0 { selectedImageIndex = nil } }
       )
-    ) { item in
-      ImageFullscreenView(imageURL: item.url, onDismiss: { selectedImageURL = nil })
+    ) {
+      if let images = block.generatedImages, let index = selectedImageIndex {
+        ImageFullscreenView(
+          images: images,
+          currentIndex: index,
+          onDismiss: { selectedImageIndex = nil }
+        )
+      }
     }
   }
 }
@@ -436,10 +442,11 @@ struct ImagePreviewItem: Identifiable {
   let url: String
 }
 
-// MARK: - Fullscreen Image View
+// MARK: - Fullscreen Image View (with swipe gallery)
 
 struct ImageFullscreenView: View {
-  let imageURL: String
+  let images: [GeneratedImage]
+  @State var currentIndex: Int
   let onDismiss: () -> Void
   @State private var scale: CGFloat = 1.0
 
@@ -447,35 +454,43 @@ struct ImageFullscreenView: View {
     ZStack {
       Color.black.ignoresSafeArea()
 
-      AsyncImage(url: URL(string: imageURL)) { phase in
-        switch phase {
-        case .success(let image):
-          image
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .scaleEffect(scale)
-            .gesture(
-              MagnificationGesture()
-                .onChanged { value in
-                  scale = value
-                }
-                .onEnded { _ in
-                  withAnimation { scale = 1.0 }
-                }
-            )
-        case .failure:
-          VStack {
-            Image(systemName: "exclamationmark.triangle")
-              .font(.largeTitle)
-              .foregroundColor(.white)
-            Text("Failed to load image")
-              .foregroundColor(.white)
+      // Swipeable TabView
+      TabView(selection: $currentIndex) {
+        ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
+          AsyncImage(url: URL(string: image.fullURL)) { phase in
+            switch phase {
+            case .success(let img):
+              img
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .scaleEffect(scale)
+                .gesture(
+                  MagnificationGesture()
+                    .onChanged { value in
+                      scale = value
+                    }
+                    .onEnded { _ in
+                      withAnimation { scale = 1.0 }
+                    }
+                )
+            case .failure:
+              VStack {
+                Image(systemName: "exclamationmark.triangle")
+                  .font(.largeTitle)
+                  .foregroundColor(.white)
+                Text("Failed to load image")
+                  .foregroundColor(.white)
+              }
+            default:
+              ProgressView()
+                .tint(.white)
+            }
           }
-        default:
-          ProgressView()
-            .tint(.white)
+          .tag(index)
         }
       }
+      .tabViewStyle(.page(indexDisplayMode: .automatic))
+      .indexViewStyle(.page(backgroundDisplayMode: .always))
 
       // Close button
       VStack {
@@ -491,6 +506,14 @@ struct ImageFullscreenView: View {
           .padding(20)
         }
         Spacer()
+
+        // Page indicator text
+        if images.count > 1 {
+          Text("\(currentIndex + 1) / \(images.count)")
+            .font(.caption)
+            .foregroundColor(.white.opacity(0.7))
+            .padding(.bottom, 60)
+        }
       }
     }
     .onTapGesture {
