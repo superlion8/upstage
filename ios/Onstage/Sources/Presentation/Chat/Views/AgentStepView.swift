@@ -1,3 +1,4 @@
+import MarkdownUI
 import SwiftUI
 
 // MARK: - Thinking Block View (DeepSeek Style)
@@ -363,11 +364,10 @@ struct AssistantMessageBubble: View {
     HStack {
       GlassCard(padding: 0) {
         VStack(alignment: .leading, spacing: 8) {
-          // Text content
+          // Text content (Markdown rendered)
           if !block.text.isEmpty {
-            Text(block.text)
-              .font(Theme.Typography.body)
-              .foregroundColor(Theme.Colors.textPrimary)
+            Markdown(block.text)
+              .markdownTheme(Theme.messageTheme(isUser: false))
               .textSelection(.enabled)
               .padding(16)
           }
