@@ -280,7 +280,7 @@ struct ChatComposer: View {
 }
 
 // MARK: - Recording HUD
-// MARK: - Recording Overlay (Fullscreen Blue Gradient Style)
+// MARK: - Recording Overlay (Partial Height Blue Gradient Style)
 
 struct RecordingOverlay: View {
   let isCancelReady: Bool
@@ -288,56 +288,58 @@ struct RecordingOverlay: View {
 
   // Blue gradient colors
   private let gradientColors = [
-    Color(red: 0.4, green: 0.7, blue: 1.0),  // Light blue top
-    Color(red: 0.2, green: 0.5, blue: 0.9),  // Medium blue
-    Color(red: 0.1, green: 0.4, blue: 0.8),  // Deeper blue bottom
+    Color(red: 0.4, green: 0.75, blue: 1.0),  // Light blue top
+    Color(red: 0.2, green: 0.55, blue: 0.95),  // Medium blue
+    Color(red: 0.15, green: 0.45, blue: 0.85),  // Deeper blue bottom
   ]
 
   private let cancelGradientColors = [
-    Color(red: 1.0, green: 0.4, blue: 0.4),  // Light red
-    Color(red: 0.9, green: 0.2, blue: 0.2),  // Red
-    Color(red: 0.7, green: 0.1, blue: 0.1),  // Dark red
+    Color(red: 1.0, green: 0.5, blue: 0.5),  // Light red
+    Color(red: 0.95, green: 0.3, blue: 0.3),  // Red
+    Color(red: 0.8, green: 0.15, blue: 0.15),  // Dark red
   ]
 
   var body: some View {
-    ZStack {
-      // Fullscreen gradient background
-      LinearGradient(
-        colors: isCancelReady ? cancelGradientColors : gradientColors,
-        startPoint: .top,
-        endPoint: .bottom
-      )
-      .ignoresSafeArea()
+    VStack(spacing: 0) {
+      // Fixed height panel (not fullscreen)
+      ZStack {
+        // Gradient background
+        LinearGradient(
+          colors: isCancelReady ? cancelGradientColors : gradientColors,
+          startPoint: .top,
+          endPoint: .bottom
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
-      VStack(spacing: 40) {
-        Spacer()
+        VStack(spacing: 24) {
+          // Main text
+          Text(isCancelReady ? "松手取消" : "松手发送，上移取消")
+            .font(.system(size: 18, weight: .medium))
+            .foregroundColor(.white)
 
-        // Main text
-        Text(isCancelReady ? "松手取消" : "松手发送，上移取消")
-          .font(.system(size: 20, weight: .medium))
-          .foregroundColor(.white)
-
-        // Animated waveform dots
-        HStack(spacing: 3) {
-          ForEach(0..<40, id: \.self) { i in
-            Circle()
-              .fill(Color.white.opacity(0.8))
-              .frame(width: 4, height: 4)
-              .offset(y: waveformOffset(for: i))
+          // Animated waveform dots
+          HStack(spacing: 3) {
+            ForEach(0..<40, id: \.self) { i in
+              Circle()
+                .fill(Color.white.opacity(0.85))
+                .frame(width: 4, height: 4)
+                .offset(y: waveformOffset(for: i))
+            }
+          }
+          .animation(
+            .easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: waveformPhase
+          )
+          .onAppear {
+            waveformPhase = 1
           }
         }
-        .animation(
-          .easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: waveformPhase
-        )
-        .onAppear {
-          waveformPhase = 1
-        }
-
-        Spacer()
-        Spacer()
+        .padding(.vertical, 32)
       }
+      .frame(height: 140)
+      .padding(.horizontal, 16)
+      .padding(.bottom, 8)
     }
-    .transition(.opacity)
+    .transition(.move(edge: .bottom).combined(with: .opacity))
   }
 
   private func waveformOffset(for index: Int) -> CGFloat {
