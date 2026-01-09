@@ -1,40 +1,235 @@
 import SwiftUI
 
-// MARK: - Main Timeline Container
+// MARK: - Thinking Block View (DeepSeek Style)
 
-struct AgentTimelineView: View {
-  @Binding var steps: [AgentStep]
-  @State private var isExpanded: Bool = true  // Global expansion for the timeline strip
-
-  // Computed properties for summary
-  private var toolCount: Int { steps.filter { $0.type == .toolCall }.count }
-  private var imageCount: Int {
-    steps.reduce(0) { count, step in
-      count + (step.result?.hasImages == true ? 1 : 0)
-    }
-  }
+struct ThinkingBlockView: View {
+  @Binding var block: ThinkingBlock
 
   var body: some View {
-    VStack(spacing: 0) {
-      // Global Header (Always visible)
-      TimelineHeader(
-        stepCount: steps.count,
-        toolCount: toolCount,
-        imageCount: imageCount,
-        isExpanded: $isExpanded
-      )
-
-      // List of Steps (Collapsible)
-      if isExpanded {
-        VStack(spacing: 8) {
-          ForEach($steps) { $step in
-            StepCard(step: $step)
+    VStack(alignment: .leading, spacing: 0) {
+      // Header Row (Always visible)
+      Button {
+        if block.status != .running {
+          withAnimation(.spring(response: 0.3)) {
+            block.isExpanded.toggle()
+            if block.isExpanded { block.pinnedOpen = true }
           }
         }
-        .padding(.top, 8)
+      } label: {
+        HStack(spacing: 8) {
+          // Left indicator dot
+          Circle()
+            .fill(block.status == .running ? Theme.Colors.accent : Theme.Colors.textTertiary)
+            .frame(width: 6, height: 6)
+
+          // Title
+          if block.status == .running {
+            Text("Thinking...")
+              .font(Theme.Typography.caption)
+              .foregroundColor(Theme.Colors.textSecondary)
+
+            ProgressView()
+              .scaleEffect(0.6)
+          } else {
+            Text("Thought for \(formatDuration(block.duration))")
+              .font(Theme.Typography.caption)
+              .foregroundColor(Theme.Colors.textTertiary)
+          }
+
+          Spacer()
+
+          // Chevron (only when done)
+          if block.status != .running {
+            Image(systemName: "chevron.right")
+              .font(.caption2)
+              .foregroundColor(Theme.Colors.textTertiary)
+              .rotationEffect(.degrees(block.isExpanded ? 90 : 0))
+          }
+        }
+        .padding(.vertical, 8)
+      }
+      .buttonStyle(.plain)
+
+      // Content (Expandable)
+      if block.isExpanded && !block.content.isEmpty {
+        VStack(alignment: .leading, spacing: 4) {
+          // Render as bullet list
+          ForEach(block.content.components(separatedBy: "\n").filter { !$0.isEmpty }, id: \.self) {
+            line in
+            HStack(alignment: .top, spacing: 8) {
+              Text("•")
+                .foregroundColor(Theme.Colors.textTertiary)
+              Text(line.trimmingCharacters(in: .whitespaces))
+                .font(Theme.Typography.body)
+                .foregroundColor(Theme.Colors.textSecondary)
+            }
+          }
+        }
+        .padding(.leading, 14)  // Align with dot
+        .padding(.bottom, 8)
+        .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
-    .padding(Theme.Layout.padding)
+    .padding(.horizontal, 12)
+    .background(
+      // Left border (DeepSeek style)
+      HStack {
+        Rectangle()
+          .fill(Theme.Colors.accent.opacity(0.3))
+          .frame(width: 2)
+        Spacer()
+      }
+    )
+    .background(Theme.Colors.surface1.opacity(0.5))
+    .cornerRadius(8)
+  }
+
+  private func formatDuration(_ duration: TimeInterval?) -> String {
+    guard let d = duration else { return "0s" }
+    if d < 1 { return String(format: "%.1fs", d) }
+    return "\(Int(d))s"
+  }
+}
+
+// MARK: - Tool Block View (Cursor Style)
+
+struct ToolBlockView: View {
+  @Binding var block: ToolBlock
+  @State private var showInputs = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Header Row
+      Button {
+        if block.status != .running {
+          withAnimation(.spring(response: 0.3)) {
+            block.isExpanded.toggle()
+            if block.isExpanded { block.pinnedOpen = true }
+          }
+        }
+      } label: {
+        HStack(spacing: 8) {
+          // Status Icon
+          statusIcon
+
+          // Title
+          Text("Tool · \(block.displayName)")
+            .font(Theme.Typography.body)
+            .foregroundColor(Theme.Colors.textPrimary)
+
+          Spacer()
+
+          // Status Badge
+          statusBadge
+
+          // Chevron (only when done)
+          if block.status != .running {
+            Image(systemName: "chevron.right")
+              .font(.caption)
+              .foregroundColor(Theme.Colors.textTertiary)
+              .rotationEffect(.degrees(block.isExpanded ? 90 : 0))
+          }
+        }
+        .padding(12)
+      }
+      .buttonStyle(.plain)
+
+      // Summary (Collapsed only)
+      if !block.isExpanded, let summary = block.summary {
+        Text(summary)
+          .font(Theme.Typography.caption)
+          .foregroundColor(Theme.Colors.textSecondary)
+          .padding(.horizontal, 12)
+          .padding(.bottom, 8)
+      }
+
+      // Expanded Content
+      if block.isExpanded {
+        VStack(alignment: .leading, spacing: 12) {
+          Divider()
+            .overlay(Theme.Colors.border)
+
+          // Inputs Section (Collapsible)
+          if let inputs = block.inputs, !inputs.isEmpty {
+            DisclosureGroup("Inputs", isExpanded: $showInputs) {
+              Text(inputs)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundColor(Theme.Colors.textSecondary)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.Colors.bg1)
+                .cornerRadius(6)
+            }
+            .font(Theme.Typography.caption)
+            .foregroundColor(Theme.Colors.textTertiary)
+          }
+
+          // Logs Section
+          if !block.logs.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+              HStack {
+                Label("Logs", systemImage: "terminal")
+                  .font(Theme.Typography.caption)
+                  .foregroundColor(Theme.Colors.textTertiary)
+                Spacer()
+                Text("Last \(block.logs.count) lines")
+                  .font(.caption2)
+                  .foregroundColor(Theme.Colors.textTertiary)
+              }
+
+              ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                  ForEach(block.logs.indices, id: \.self) { i in
+                    Text(block.logs[i])
+                      .font(.system(.caption2, design: .monospaced))
+                      .foregroundColor(Theme.Colors.textSecondary)
+                  }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .frame(maxHeight: 120)
+              .background(Theme.Colors.bg0)
+              .cornerRadius(6)
+            }
+          }
+
+          // Outputs Section (Images)
+          if !block.outputs.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+              Label("Outputs", systemImage: "photo.stack")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.textTertiary)
+
+              ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                  ForEach(block.outputs) { image in
+                    AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
+                      switch phase {
+                      case .success(let img):
+                        img
+                          .resizable()
+                          .aspectRatio(contentMode: .fill)
+                          .frame(width: 80, height: 80)
+                          .clipShape(RoundedRectangle(cornerRadius: 8))
+                      default:
+                        RoundedRectangle(cornerRadius: 8)
+                          .fill(Theme.Colors.surface2)
+                          .frame(width: 80, height: 80)
+                          .overlay(ProgressView())
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+    }
     .background(Theme.Colors.surface1)
     .cornerRadius(Theme.Layout.radiusCard)
     .overlay(
@@ -42,243 +237,176 @@ struct AgentTimelineView: View {
         .stroke(Theme.Colors.border, lineWidth: 1)
     )
   }
-}
 
-// MARK: - Timeline Header
+  @ViewBuilder
+  private var statusIcon: some View {
+    switch block.status {
+    case .running:
+      ProgressView()
+        .scaleEffect(0.7)
+    case .done:
+      Image(systemName: "checkmark.circle.fill")
+        .foregroundColor(Theme.Colors.success)
+    case .failed:
+      Image(systemName: "xmark.circle.fill")
+        .foregroundColor(Theme.Colors.error)
+    }
+  }
 
-struct TimelineHeader: View {
-  let stepCount: Int
-  let toolCount: Int
-  let imageCount: Int
-  @Binding var isExpanded: Bool
-
-  var body: some View {
-    Button {
-      withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-        isExpanded.toggle()
+  @ViewBuilder
+  private var statusBadge: some View {
+    switch block.status {
+    case .running:
+      Text("Running...")
+        .font(.caption2)
+        .foregroundColor(Theme.Colors.accent)
+    case .done:
+      if let d = block.duration {
+        Text("\(Int(d))s")
+          .font(.caption2)
+          .foregroundColor(Theme.Colors.success)
       }
-    } label: {
-      HStack(spacing: 6) {
-        // Icon (Animated if running)
-        Image(systemName: "list.bullet.rectangle.portrait")
-          .foregroundColor(Theme.Colors.textSecondary)
-
-        // Summary Text
-        Text("Steps · \(stepCount) steps")
-          .font(Theme.Typography.caption)
-          .foregroundColor(Theme.Colors.textSecondary)
-
-        if toolCount > 0 {
-          Text("· \(toolCount) tools")
-            .font(Theme.Typography.caption)
-            .foregroundColor(Theme.Colors.textSecondary)
-        }
-
-        if imageCount > 0 {
-          Text("· \(imageCount) images")
-            .font(Theme.Typography.caption)
-            .foregroundColor(Theme.Colors.textSecondary)
-        }
-
-        Spacer()
-
-        // Chevron
-        Image(systemName: "chevron.right")
-          .font(.caption)
-          .foregroundColor(Theme.Colors.textTertiary)
-          .rotationEffect(.degrees(isExpanded ? 90 : 0))
-      }
-      .contentShape(Rectangle())  // Hit test entire row
+    case .failed:
+      Text("Failed")
+        .font(.caption2)
+        .foregroundColor(Theme.Colors.error)
     }
   }
 }
 
-// MARK: - Step Card
+// MARK: - Block Renderer (Dispatches to correct view)
 
-struct StepCard: View {
-  @Binding var step: AgentStep
+struct BlockRenderer: View {
+  @Binding var block: ChatBlock
 
   var body: some View {
-    VStack(spacing: 0) {
-      // 1. Header Row (Always visible)
-      Button {
-        withAnimation(.spring(response: 0.3)) {
-          step.isExpanded?.toggle()
-        }
-      } label: {
-        HStack(spacing: 12) {
-          // Status Icon
-          StatusIcon(status: step.status)
+    switch block {
+    case .userMessage(let userBlock):
+      UserMessageBubble(block: userBlock)
+    case .assistantMessage(let assistantBlock):
+      AssistantMessageBubble(
+        block: Binding(
+          get: { assistantBlock },
+          set: {
+            if case .assistantMessage = block {
+              block = .assistantMessage($0)
+            }
+          }
+        ))
+    case .thinking(var thinkingBlock):
+      ThinkingBlockView(
+        block: Binding(
+          get: { thinkingBlock },
+          set: {
+            thinkingBlock = $0
+            block = .thinking($0)
+          }
+        ))
+    case .tool(var toolBlock):
+      ToolBlockView(
+        block: Binding(
+          get: { toolBlock },
+          set: {
+            toolBlock = $0
+            block = .tool($0)
+          }
+        ))
+    }
+  }
+}
 
-          // Title
-          Text(formatTitle(step))
+// MARK: - User Message Bubble
+
+struct UserMessageBubble: View {
+  let block: UserMessageBlock
+
+  var body: some View {
+    HStack {
+      Spacer()
+      VStack(alignment: .trailing, spacing: 8) {
+        // Images
+        if let images = block.images, !images.isEmpty {
+          HStack(spacing: 8) {
+            ForEach(images) { image in
+              if let uiImage = UIImage(data: image.data) {
+                Image(uiImage: uiImage)
+                  .resizable()
+                  .aspectRatio(contentMode: .fill)
+                  .frame(width: 80, height: 80)
+                  .clipShape(RoundedRectangle(cornerRadius: 12))
+              }
+            }
+          }
+        }
+
+        // Text
+        if let text = block.text, !text.isEmpty {
+          Text(text)
+            .font(Theme.Typography.body)
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Theme.Colors.accent)
+            .cornerRadius(20)
+        }
+      }
+    }
+  }
+}
+
+// MARK: - Assistant Message Bubble
+
+struct AssistantMessageBubble: View {
+  @Binding var block: AssistantMessageBlock
+
+  var body: some View {
+    HStack {
+      VStack(alignment: .leading, spacing: 8) {
+        // Text content
+        if !block.text.isEmpty {
+          Text(block.text)
             .font(Theme.Typography.body)
             .foregroundColor(Theme.Colors.textPrimary)
-            .lineLimit(1)
+            .textSelection(.enabled)
+        }
 
-          Spacer()
-
-          // Summary (Collapsed only)
-          if !(step.isExpanded ?? false), let result = step.result?.message {
-            Text(result)
-              .font(Theme.Typography.caption)
-              .foregroundColor(Theme.Colors.textTertiary)
-              .lineLimit(1)
+        // Generated images
+        if let images = block.generatedImages, !images.isEmpty {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+              ForEach(images) { image in
+                AsyncImage(url: URL(string: image.thumbnailUrl ?? image.fullURL)) { phase in
+                  switch phase {
+                  case .success(let img):
+                    img
+                      .resizable()
+                      .aspectRatio(contentMode: .fill)
+                      .frame(width: 120, height: 120)
+                      .clipShape(RoundedRectangle(cornerRadius: 12))
+                  default:
+                    RoundedRectangle(cornerRadius: 12)
+                      .fill(Theme.Colors.surface2)
+                      .frame(width: 120, height: 120)
+                      .overlay(ProgressView())
+                  }
+                }
+              }
+            }
           }
+        }
 
-          // Duration or Chevron
-          if step.status == .running {
+        // Loading indicator for running state
+        if block.status == .running && block.text.isEmpty {
+          HStack(spacing: 4) {
             ProgressView()
               .scaleEffect(0.7)
-          } else {
-            Image(systemName: "chevron.right")
-              .font(.caption)
-              .foregroundColor(Theme.Colors.textTertiary)
-              .rotationEffect(.degrees((step.isExpanded ?? false) ? 90 : 0))
-          }
-        }
-        .padding(12)
-        .background(
-          (step.isExpanded ?? false) ? Theme.Colors.surface2 : Color.clear
-        )
-        .cornerRadius(8)
-      }
-
-      // 2. Expanded Detail
-      if step.isExpanded ?? false {
-        StepDetailView(step: step)
-          .transition(.opacity.combined(with: .move(edge: .top)))
-      }
-    }
-    .background(Theme.Colors.bg0.opacity(0.3))  // Slight tint for card
-    .cornerRadius(8)
-    .overlay(
-      RoundedRectangle(cornerRadius: 8)
-        .stroke(Theme.Colors.border, lineWidth: 1)
-    )
-  }
-
-  private func formatTitle(_ step: AgentStep) -> String {
-    if let tool = step.tool {
-      // Human readable titles
-      if tool.contains("image") { return "Generate Image" }
-      if tool.contains("search") { return "Search Web" }
-      if tool.contains("scrape") { return "Read Website" }
-      return tool.replacingOccurrences(of: "_", with: " ").capitalized
-    }
-    return step.type == .thinking ? "Thinking" : "Processing"
-  }
-}
-
-// MARK: - Step Detail
-
-struct StepDetailView: View {
-  let step: AgentStep
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Divider()
-        .overlay(Theme.Colors.border)
-
-      // 1. Description ("What I'm doing")
-      if let desc = step.description {
-        Text(desc)
-          .font(Theme.Typography.body)
-          .foregroundColor(Theme.Colors.textSecondary)
-      }
-
-      // 2. Input (Arguments)
-      if let args = step.arguments, !args.isEmpty {
-        VStack(alignment: .leading, spacing: 4) {
-          Label("Input", systemImage: "arrow.right.circle")
-            .font(Theme.Typography.caption)
-            .foregroundColor(Theme.Colors.textTertiary)
-
-          CodeBlock(content: formatJSON(args))
-        }
-      }
-
-      // 3. Live Logs / Output
-      if let output = step.output, !output.isEmpty {
-        VStack(alignment: .leading, spacing: 4) {
-          Label("Logs", systemImage: "terminal")
-            .font(Theme.Typography.caption)
-            .foregroundColor(Theme.Colors.textTertiary)
-
-          ScrollView {
-            Text(output)
-              .font(.system(.caption, design: .monospaced))
-              .foregroundColor(Theme.Colors.textSecondary)
-              .padding(8)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-          .frame(maxHeight: 150)
-          .background(Theme.Colors.bg0)
-          .cornerRadius(6)
-        }
-      }
-
-      // 4. Result
-      if let result = step.result {
-        VStack(alignment: .leading, spacing: 4) {
-          Label("Result", systemImage: "arrow.left.circle")
-            .font(Theme.Typography.caption)
-            .foregroundColor(result.success ? Theme.Colors.success : Theme.Colors.error)
-
-          if let message = result.message {
-            Text(message)
+            Text("Generating...")
               .font(Theme.Typography.caption)
-              .foregroundColor(Theme.Colors.textSecondary)
+              .foregroundColor(Theme.Colors.textTertiary)
           }
         }
       }
+      Spacer()
     }
-    .padding(12)
-  }
-
-  private func formatJSON(_ args: [String: AnyCodable]) -> String {
-    // Simple conversion for display
-    let dict = args.mapValues { "\($0.value)" }
-    return dict.description
-  }
-}
-
-// MARK: - Helpers
-
-struct StatusIcon: View {
-  let status: AgentStep.StepStatus
-
-  var body: some View {
-    Group {
-      switch status {
-      case .pending:
-        Circle().stroke(Theme.Colors.textTertiary, lineWidth: 1.5)
-      case .running:
-        Image(systemName: "gearshape.2.fill")
-          .renderingMode(.template)
-          .foregroundColor(Theme.Colors.accent)
-      case .success:
-        Image(systemName: "checkmark.circle.fill")
-          .foregroundColor(Theme.Colors.success)
-      case .failed:
-        Image(systemName: "xmark.circle.fill")
-          .foregroundColor(Theme.Colors.error)
-      }
-    }
-    .frame(width: 16, height: 16)
-  }
-}
-
-struct CodeBlock: View {
-  let content: String
-
-  var body: some View {
-    Text(content)
-      .font(.system(.caption, design: .monospaced))
-      .foregroundColor(Theme.Colors.textSecondary)
-      .padding(8)
-      .background(Theme.Colors.bg1)
-      .cornerRadius(6)
-      .frame(maxWidth: .infinity, alignment: .leading)
   }
 }

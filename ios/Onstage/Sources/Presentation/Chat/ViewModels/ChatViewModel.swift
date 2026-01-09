@@ -6,7 +6,7 @@ import SwiftUI
 final class ChatViewModel: ObservableObject {
   // MARK: - Published Properties
 
-  @Published var messages: [Message] = []
+  @Published var blocks: [ChatBlock] = []  // Block-based rendering
   @Published var inputText: String = ""
   @Published var selectedImages: [MessageImage] = []
   @Published var isLoading: Bool = false
@@ -38,17 +38,18 @@ final class ChatViewModel: ObservableObject {
     }
   }
 
-  // MARK: - Streaming State
+  // MARK: - Streaming State (Block IDs for tracking)
 
-  @Published var streamingThinking: String = ""
-  @Published var streamingText: String = ""
-  @Published var streamingSteps: [AgentStep] = []
-  @Published var streamingImages: [GeneratedImage] = []
+  private var currentThinkingBlockId: UUID?
+  private var currentToolBlockId: UUID?
+  private var currentAssistantBlockId: UUID?
+  private var thinkingStartTime: Date?
 
   // MARK: - Private Properties
 
   private let chatRepository = ChatRepository.shared
   private let sseClient = SSEClient()
+  let audioRecorder = AudioRecorderManager()  // Public for View access
   private var useStreaming = true  // Use streaming by default
   private var backgroundObserver: NSObjectProtocol?
   private var foregroundObserver: NSObjectProtocol?
@@ -104,21 +105,13 @@ final class ChatViewModel: ObservableObject {
     // Cancel any active SSE connection to prevent "network connection was lost" errors
     if isLoading {
       sseClient.cancel()
-      // Update the streaming message to show it was interrupted
-      if let messageId = currentStreamingMessageId {
-        Task { @MainActor in
-          // Keep the partial content and mark as interrupted
-          if let index = messages.firstIndex(where: { $0.id == messageId }) {
-            if messages[index].status == .generating {
-              let partialText =
-                streamingText.isEmpty ? "回复中断，请重新发送消息" : streamingText + "\n\n⚠️ 回复因后台暂停而中断"
-              messages[index].content.text = partialText
-              messages[index].status = .sent
-            }
-          }
-          isLoading = false
-        }
-      }
+      // Add interrupted message block
+      let interruptedBlock = AssistantMessageBlock(
+        text: "⚠️ 回复因后台暂停而中断，请重新发送消息",
+        status: .failed
+      )
+      blocks.append(.assistantMessage(interruptedBlock))
+      isLoading = false
     }
   }
 
@@ -133,17 +126,12 @@ final class ChatViewModel: ObservableObject {
   }
 
   private func addWelcomeMessage() {
-    let welcomeMessage = Message(
-      id: UUID(),
-      role: .assistant,
-      content: MessageContent(
-        text:
-          "👋 你好！我是 Onstage AI 助手。\n\n你可以：\n• 发送商品图片，我帮你生成模特穿搭图\n• 使用下方的快捷按钮换搭配、换模特\n• 上传参考图，复刻类似风格\n\n现在是演示模式，快来试试吧！"
-      ),
-      createdAt: Date(),
-      status: .sent
+    let welcomeBlock = AssistantMessageBlock(
+      text:
+        "👋 你好！我是 Onstage AI 助手。\n\n你可以：\n• 发送商品图片，我帮你生成模特穿搭图\n• 使用下方的快捷按钮换搭配、换模特\n• 上传参考图，复刻类似风格\n\n现在是演示模式，快来试试吧！",
+      status: .done
     )
-    messages.append(welcomeMessage)
+    blocks.append(.assistantMessage(welcomeBlock))
   }
 
   // MARK: - Conversations
@@ -164,7 +152,7 @@ final class ChatViewModel: ObservableObject {
 
   func startNewConversation() {
     currentConversationId = nil
-    messages = []
+    blocks = []
     inputText = ""
     selectedImages = []
     if isDemoMode {
@@ -186,14 +174,33 @@ final class ChatViewModel: ObservableObject {
     }
   }
 
-  // MARK: - Messages
-
   func loadMessages() async {
     guard !isDemoMode else { return }
     guard let conversationId = currentConversationId else { return }
 
     do {
-      messages = try await chatRepository.getMessages(conversationId: conversationId)
+      let messages = try await chatRepository.getMessages(conversationId: conversationId)
+      // Convert Message array to ChatBlock array
+      blocks = messages.map { message -> ChatBlock in
+        if message.role == .user {
+          return .userMessage(
+            UserMessageBlock(
+              id: message.id,
+              text: message.content.text,
+              images: message.content.images,
+              createdAt: message.createdAt
+            ))
+        } else {
+          return .assistantMessage(
+            AssistantMessageBlock(
+              id: message.id,
+              text: message.content.text ?? "",
+              status: .done,
+              generatedImages: message.content.generatedImages,
+              createdAt: message.createdAt
+            ))
+        }
+      }
     } catch {
       self.error = error.localizedDescription
     }
@@ -211,18 +218,12 @@ final class ChatViewModel: ObservableObject {
     inputText = ""
     selectedImages = []
 
-    // Create optimistic user message
-    let userMessage = Message(
-      id: UUID(),
-      role: .user,
-      content: MessageContent(
-        text: text.isEmpty ? nil : text,
-        images: images.isEmpty ? nil : images
-      ),
-      createdAt: Date(),
-      status: .sent
+    // Create user message block
+    let userBlock = UserMessageBlock(
+      text: text.isEmpty ? nil : text,
+      images: images.isEmpty ? nil : images
     )
-    messages.append(userMessage)
+    blocks.append(.userMessage(userBlock))
 
     // Demo mode: simulate AI response
     if isDemoMode {
@@ -243,28 +244,18 @@ final class ChatViewModel: ObservableObject {
   // MARK: - Streaming Send
 
   private func sendMessageStream(text: String?, images: [MessageImage]?) async {
-    // Reset streaming state
-    streamingThinking = ""
-    streamingText = ""
-    streamingSteps = []
-    streamingImages = []
+    // Reset block tracking state
+    currentThinkingBlockId = nil
+    currentToolBlockId = nil
+    currentAssistantBlockId = nil
+    thinkingStartTime = nil
 
-    // Create streaming assistant message
-    let streamingMessageId = UUID()
-    currentStreamingMessageId = streamingMessageId  // Track for background handling
-    let streamingMessage = Message(
-      id: streamingMessageId,
-      role: .assistant,
-      content: MessageContent(text: nil),
-      createdAt: Date(),
-      status: .generating
-    )
-    messages.append(streamingMessage)
     isLoading = true
 
     // Get token
     guard let token = KeychainManager.shared.getAuthToken() else {
-      updateStreamingMessage(id: streamingMessageId, text: "认证失败，请重新登录", status: .failed)
+      let errorBlock = AssistantMessageBlock(text: "认证失败，请重新登录", status: .failed)
+      blocks.append(.assistantMessage(errorBlock))
       isLoading = false
       return
     }
@@ -276,18 +267,13 @@ final class ChatViewModel: ObservableObject {
       conversationId: currentConversationId,
       token: token,
       onEvent: { [weak self] event in
-        self?.handleSSEEvent(event, messageId: streamingMessageId)
+        self?.handleSSEEvent(event, messageId: UUID())  // messageId not used in new logic
       },
       onComplete: { [weak self] in
-        self?.finalizeStreamingMessage(id: streamingMessageId)
+        self?.finalizeStream()
       },
       onError: { [weak self] error in
-        self?.updateStreamingMessage(
-          id: streamingMessageId,
-          text: "发送失败: \(error.localizedDescription)",
-          status: .failed
-        )
-        self?.isLoading = false
+        self?.handleStreamError(message: error.localizedDescription)
       }
     )
   }
@@ -302,24 +288,21 @@ final class ChatViewModel: ObservableObject {
 
     case .thinking:
       if let content = event.thinkingContent {
-        streamingThinking += content
-        updateThinkingStep(content: content, messageId: messageId)
+        handleThinkingDelta(content)
       }
 
     case .toolStart:
-      startToolStep(
-        tool: event.toolName ?? "Unknown Tool",  // Fix optional
-        args: event.arguments,
-        messageId: messageId
+      handleToolStart(
+        tool: event.toolName ?? "Unknown Tool",
+        args: event.arguments
       )
 
     case .toolResult:
-      finishToolStep(result: event.toolResult, messageId: messageId)
+      handleToolResult(result: event.toolResult)
 
     case .textDelta:
       if let delta = event.textDelta {
-        streamingText += delta
-        updateStreamingMessageContent(id: messageId)
+        handleTextDelta(delta)
       }
 
     case .image:
@@ -329,151 +312,206 @@ final class ChatViewModel: ObservableObject {
           url: url,
           thumbnailUrl: event.data["thumbnailUrl"] as? String
         )
-        streamingImages.append(image)
-        updateStreamingMessageContent(id: messageId)
+        handleImageOutput(image)
       }
 
     case .done:
-      finalizeStreamingMessage(id: messageId)
+      finalizeStream()
 
     case .error:
-      updateStreamingMessage(
-        id: messageId,
-        text: event.errorMessage ?? "Unknown error",
-        status: .failed
-      )
-      isLoading = false
+      handleStreamError(message: event.errorMessage ?? "Unknown error")
     }
   }
 
-  // MARK: - Step Management Helpers
+  // MARK: - Block Management Helpers
 
-  private func updateThinkingStep(content: String, messageId: UUID) {
-    // If last step is thinking, append. Else create new.
-    if let lastIndex = streamingSteps.indices.last, streamingSteps[lastIndex].type == .thinking {
-      streamingSteps[lastIndex].output = (streamingSteps[lastIndex].output ?? "") + content
+  private func handleThinkingDelta(_ content: String) {
+    // If already have a thinking block, update it
+    if let id = currentThinkingBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .thinking(var block) = blocks[index]
+    {
+      block.content += content
+      blocks[index] = .thinking(block)
     } else {
-      // Close previous running step
-      closeLastStep()
+      // Close any running assistant block first
+      closeCurrentAssistantBlock()
 
-      let step = AgentStep(
-        id: UUID(),
-        type: .thinking,
-        tool: nil,
-        arguments: nil,
-        result: nil,
-        timestamp: Date(),
-        status: .running
-      )
-      var newStep = step
-      newStep.output = content
-      newStep.isExpanded = true
-      streamingSteps.append(newStep)
+      // Create new thinking block
+      thinkingStartTime = Date()
+      let block = ThinkingBlock(content: content)
+      currentThinkingBlockId = block.id
+      blocks.append(.thinking(block))
     }
-    updateStreamingMessageContent(id: messageId)
   }
 
-  private func startToolStep(tool: String, args: [String: Any]?, messageId: UUID) {
-    closeLastStep()
+  private func handleToolStart(tool: String, args: [String: Any]?) {
+    // Finalize thinking block if running
+    finalizeThinkingBlock()
 
-    let argsCodable = args?.mapValues { AnyCodable($0) }
-    var step = AgentStep(
-      id: UUID(),
-      type: .toolCall,
-      tool: tool,
-      arguments: argsCodable,
-      result: nil,
-      timestamp: Date(),
-      status: .running
-    )
-    step.isExpanded = true
-    step.description = "Executing \(tool)..."
-    step.input = args?.description  // Simple string rep for now
-
-    streamingSteps.append(step)
-    updateStreamingMessageContent(id: messageId)
+    // Create tool block
+    var toolBlock = ToolBlock(toolName: tool)
+    if let args = args {
+      toolBlock.inputs = formatJSON(args)
+    }
+    currentToolBlockId = toolBlock.id
+    blocks.append(.tool(toolBlock))
   }
 
-  private func finishToolStep(result: [String: Any]?, messageId: UUID) {
-    guard let index = streamingSteps.indices.last, streamingSteps[index].status == .running else {
-      return
-    }
+  private func handleToolResult(result: [String: Any]?) {
+    guard let id = currentToolBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .tool(var block) = blocks[index]
+    else { return }
 
-    var step = streamingSteps[index]
     let success = result?["success"] as? Bool ?? true
     let message = result?["message"] as? String
-    let hasImages = result?["hasImages"] as? Bool
 
-    step.status = success ? .success : .failed
-    step.result = StepResult(success: success, message: message, hasImages: hasImages)
+    block.status = success ? .done : .failed
+    block.summary = message ?? (success ? "Completed" : "Failed")
+    block.duration = Date().timeIntervalSince(block.createdAt)
 
-    // Auto-collapse after delay (UI handled via isExpanded, but we set it false here delayed?)
-    // Actually, let's keep it expanded until next step or final done,
-    // OR we can spawn a task to close it.
-    // User requested: "wait 800ms -> collapse".
-    // We will do this via a Task.
+    blocks[index] = .tool(block)
+    currentToolBlockId = nil
 
-    streamingSteps[index] = step
-    updateStreamingMessageContent(id: messageId)
-
+    // Auto-collapse after delay
+    let blockId = block.id
     Task {
-      try? await Task.sleep(nanoseconds: 800_000_000)
-      // Check if still valid index and same step
+      try? await Task.sleep(nanoseconds: 700_000_000)
       await MainActor.run {
-        if self.streamingSteps.indices.contains(index), self.streamingSteps[index].id == step.id {
-          self.streamingSteps[index].isExpanded = false
-          self.updateStreamingMessageContent(id: messageId)
+        if let idx = self.blocks.firstIndex(where: { $0.id == blockId }),
+          case .tool(var b) = self.blocks[idx],
+          !b.pinnedOpen
+        {
+          b.isExpanded = false
+          self.blocks[idx] = .tool(b)
         }
       }
     }
   }
 
-  private func closeLastStep() {
-    if let index = streamingSteps.indices.last, streamingSteps[index].status == .running {
-      streamingSteps[index].status = .success  // Assume success if moved on? Or generic done
-      streamingSteps[index].isExpanded = false
+  private func handleImageOutput(_ image: GeneratedImage) {
+    // Add to current tool block if exists
+    if let id = currentToolBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .tool(var block) = blocks[index]
+    {
+      block.outputs.append(image)
+      blocks[index] = .tool(block)
+    } else if let id = currentAssistantBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .assistantMessage(var block) = blocks[index]
+    {
+      // Add to assistant message
+      var images = block.generatedImages ?? []
+      images.append(image)
+      block.generatedImages = images
+      blocks[index] = .assistantMessage(block)
     }
   }
 
-  private func updateStreamingMessageContent(id: UUID) {
-    guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+  private func handleTextDelta(_ text: String) {
+    // Finalize thinking block if running
+    finalizeThinkingBlock()
 
-    messages[index].content = MessageContent(
-      text: streamingText.isEmpty ? nil : streamingText,
-      images: nil,
-      generatedImages: streamingImages.isEmpty ? nil : streamingImages,
-      guiRequest: nil,
-      agentSteps: streamingSteps.isEmpty ? nil : streamingSteps,
-      thinking: streamingThinking.isEmpty ? nil : streamingThinking
-    )
+    // If already have an assistant block, update it
+    if let id = currentAssistantBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .assistantMessage(var block) = blocks[index]
+    {
+      block.text += text
+      blocks[index] = .assistantMessage(block)
+    } else {
+      // Create new assistant message block
+      let block = AssistantMessageBlock(text: text)
+      currentAssistantBlockId = block.id
+      blocks.append(.assistantMessage(block))
+    }
   }
 
-  private func updateStreamingMessage(id: UUID, text: String, status: Message.MessageStatus) {
-    guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-    messages[index].content.text = text
-    messages[index].status = status
+  private func finalizeThinkingBlock() {
+    guard let id = currentThinkingBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .thinking(var block) = blocks[index]
+    else { return }
+
+    block.status = .done
+    block.duration = thinkingStartTime.map { Date().timeIntervalSince($0) }
+    blocks[index] = .thinking(block)
+    currentThinkingBlockId = nil
+
+    // Auto-collapse
+    let blockId = block.id
+    Task {
+      try? await Task.sleep(nanoseconds: 700_000_000)
+      await MainActor.run {
+        if let idx = self.blocks.firstIndex(where: { $0.id == blockId }),
+          case .thinking(var b) = self.blocks[idx],
+          !b.pinnedOpen
+        {
+          b.isExpanded = false
+          self.blocks[idx] = .thinking(b)
+        }
+      }
+    }
   }
 
-  private func finalizeStreamingMessage(id: UUID) {
-    closeLastStep()
-    guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-    messages[index].status = .sent
-    updateStreamingMessageContent(id: id)  // Make sure steps are synced
+  private func closeCurrentAssistantBlock() {
+    guard let id = currentAssistantBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .assistantMessage(var block) = blocks[index]
+    else { return }
+
+    block.status = .done
+    blocks[index] = .assistantMessage(block)
+    currentAssistantBlockId = nil
+  }
+
+  private func finalizeStream() {
+    finalizeThinkingBlock()
+    closeCurrentAssistantBlock()
+
+    // Finalize any running tool block
+    if let id = currentToolBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .tool(var block) = blocks[index]
+    {
+      if block.status == .running {
+        block.status = .done
+        block.duration = Date().timeIntervalSince(block.createdAt)
+        blocks[index] = .tool(block)
+      }
+    }
+
+    currentThinkingBlockId = nil
+    currentToolBlockId = nil
+    currentAssistantBlockId = nil
     isLoading = false
+  }
+
+  private func handleStreamError(message: String) {
+    // Add error as assistant message
+    let block = AssistantMessageBlock(text: "Error: \(message)", status: .failed)
+    blocks.append(.assistantMessage(block))
+    isLoading = false
+  }
+
+  private func formatJSON(_ dict: [String: Any]) -> String {
+    if let data = try? JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted),
+      let str = String(data: data, encoding: .utf8)
+    {
+      return str
+    }
+    return dict.description
   }
 
   // MARK: - Regular Send (non-streaming fallback)
 
   private func sendMessageRegular(text: String?, images: [MessageImage]?) async {
-    // Create loading assistant message
-    let loadingMessage = Message(
-      id: UUID(),
-      role: .assistant,
-      content: MessageContent(text: "思考中..."),
-      createdAt: Date(),
-      status: .generating
-    )
-    messages.append(loadingMessage)
+    // Add loading block
+    var loadingBlock = AssistantMessageBlock(text: "思考中...", status: .running)
+    blocks.append(.assistantMessage(loadingBlock))
+    let loadingBlockId = loadingBlock.id
 
     isLoading = true
 
@@ -490,18 +528,26 @@ final class ChatViewModel: ObservableObject {
         await loadConversations()
       }
 
-      // Replace loading message with actual response
-      if let index = messages.firstIndex(where: { $0.id == loadingMessage.id }) {
-        messages[index] = response.message
+      // Replace loading block with actual response
+      if let index = blocks.firstIndex(where: { $0.id == loadingBlockId }) {
+        let responseBlock = AssistantMessageBlock(
+          id: response.message.id,
+          text: response.message.content.text ?? "",
+          status: .done,
+          generatedImages: response.message.content.generatedImages
+        )
+        blocks[index] = .assistantMessage(responseBlock)
       }
 
     } catch {
-      // Update loading message to error
-      if let index = messages.firstIndex(where: { $0.id == loadingMessage.id }) {
-        messages[index].content.text = "发送失败: \(error.localizedDescription)"
-        messages[index].status = .failed
+      // Update loading block to error
+      if let index = blocks.firstIndex(where: { $0.id == loadingBlockId }),
+        case .assistantMessage(var block) = blocks[index]
+      {
+        block.text = "发送失败: \(error.localizedDescription)"
+        block.status = .failed
+        blocks[index] = .assistantMessage(block)
       }
-
       self.error = error.localizedDescription
     }
 
@@ -511,18 +557,23 @@ final class ChatViewModel: ObservableObject {
   // MARK: - Demo Mode AI Response
 
   private func simulateAIResponse(userText: String, hasImages: Bool) async {
-    // Add thinking message
-    let thinkingMessage = Message(
-      id: UUID(),
-      role: .assistant,
-      content: MessageContent(text: "🤔 思考中..."),
-      createdAt: Date(),
-      status: .generating
-    )
-    messages.append(thinkingMessage)
+    // Add thinking block
+    let thinkingBlock = ThinkingBlock(content: "分析用户请求...")
+    let thinkingBlockId = thinkingBlock.id
+    blocks.append(.thinking(thinkingBlock))
 
     // Simulate delay
     try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+    // Finalize thinking block
+    if let index = blocks.firstIndex(where: { $0.id == thinkingBlockId }),
+      case .thinking(var block) = blocks[index]
+    {
+      block.status = .done
+      block.isExpanded = false
+      block.duration = 1.5
+      blocks[index] = .thinking(block)
+    }
 
     // Generate response based on input
     let responseText: String
@@ -578,11 +629,9 @@ final class ChatViewModel: ObservableObject {
         """
     }
 
-    // Update message
-    if let index = messages.firstIndex(where: { $0.id == thinkingMessage.id }) {
-      messages[index].content.text = responseText
-      messages[index].status = .sent
-    }
+    // Add response block
+    let responseBlock = AssistantMessageBlock(text: responseText, status: .done)
+    blocks.append(.assistantMessage(responseBlock))
   }
 
   // MARK: - Image Selection

@@ -42,14 +42,8 @@ struct MessageBubbleView: View {
           }
         }
 
-        // 2. Timeline Steps (AI only)
-        if !isUser, message.content.agentSteps != nil, !message.content.agentSteps!.isEmpty {
-          AgentTimelineView(
-            steps: Binding(
-              get: { message.content.agentSteps ?? [] },
-              set: { message.content.agentSteps = $0 }
-            ))
-        }
+        // 2. Timeline Steps - Now handled by BlockRenderer
+        // (MessageBubbleView is legacy - use BlockRenderer for new block-based UI)
 
         // 3. Text Content
         if let text = message.content.text, !text.isEmpty {

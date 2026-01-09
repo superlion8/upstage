@@ -197,3 +197,160 @@ struct AnyCodable: Codable, Equatable {
     String(describing: lhs.value) == String(describing: rhs.value)
   }
 }
+
+// MARK: - Block Status
+
+enum BlockStatus: String, Codable {
+  case running
+  case done
+  case failed
+}
+
+// MARK: - Chat Block (Render Unit for Block-Based Chat)
+
+enum ChatBlock: Identifiable, Equatable {
+  case userMessage(UserMessageBlock)
+  case assistantMessage(AssistantMessageBlock)
+  case thinking(ThinkingBlock)
+  case tool(ToolBlock)
+
+  var id: UUID {
+    switch self {
+    case .userMessage(let block): return block.id
+    case .assistantMessage(let block): return block.id
+    case .thinking(let block): return block.id
+    case .tool(let block): return block.id
+    }
+  }
+
+  var createdAt: Date {
+    switch self {
+    case .userMessage(let block): return block.createdAt
+    case .assistantMessage(let block): return block.createdAt
+    case .thinking(let block): return block.createdAt
+    case .tool(let block): return block.createdAt
+    }
+  }
+}
+
+// MARK: - User Message Block
+
+struct UserMessageBlock: Identifiable, Equatable {
+  let id: UUID
+  var text: String?
+  var images: [MessageImage]?
+  let createdAt: Date
+
+  init(
+    id: UUID = UUID(), text: String? = nil, images: [MessageImage]? = nil, createdAt: Date = Date()
+  ) {
+    self.id = id
+    self.text = text
+    self.images = images
+    self.createdAt = createdAt
+  }
+}
+
+// MARK: - Assistant Message Block
+
+struct AssistantMessageBlock: Identifiable, Equatable {
+  let id: UUID
+  var text: String
+  var status: BlockStatus
+  var generatedImages: [GeneratedImage]?
+  let createdAt: Date
+
+  init(
+    id: UUID = UUID(), text: String = "", status: BlockStatus = .running,
+    generatedImages: [GeneratedImage]? = nil, createdAt: Date = Date()
+  ) {
+    self.id = id
+    self.text = text
+    self.status = status
+    self.generatedImages = generatedImages
+    self.createdAt = createdAt
+  }
+}
+
+// MARK: - Thinking Block (DeepSeek Style)
+
+struct ThinkingBlock: Identifiable, Equatable {
+  let id: UUID
+  var status: BlockStatus
+  var content: String
+  var duration: TimeInterval?
+  var isExpanded: Bool
+  var pinnedOpen: Bool
+  let createdAt: Date
+
+  init(
+    id: UUID = UUID(), status: BlockStatus = .running, content: String = "",
+    duration: TimeInterval? = nil, isExpanded: Bool = true, pinnedOpen: Bool = false,
+    createdAt: Date = Date()
+  ) {
+    self.id = id
+    self.status = status
+    self.content = content
+    self.duration = duration
+    self.isExpanded = isExpanded
+    self.pinnedOpen = pinnedOpen
+    self.createdAt = createdAt
+  }
+}
+
+// MARK: - Tool Block (Cursor Style)
+
+struct ToolBlock: Identifiable, Equatable {
+  let id: UUID
+  var toolName: String
+  var displayName: String
+  var status: BlockStatus
+  var inputs: String?
+  var logs: [String]
+  var outputs: [GeneratedImage]
+  var summary: String?
+  var duration: TimeInterval?
+  var isExpanded: Bool
+  var pinnedOpen: Bool
+  let createdAt: Date
+
+  init(
+    id: UUID = UUID(),
+    toolName: String,
+    displayName: String? = nil,
+    status: BlockStatus = .running,
+    inputs: String? = nil,
+    logs: [String] = [],
+    outputs: [GeneratedImage] = [],
+    summary: String? = nil,
+    duration: TimeInterval? = nil,
+    isExpanded: Bool = true,
+    pinnedOpen: Bool = false,
+    createdAt: Date = Date()
+  ) {
+    self.id = id
+    self.toolName = toolName
+    self.displayName = displayName ?? Self.humanReadableName(from: toolName)
+    self.status = status
+    self.inputs = inputs
+    self.logs = logs
+    self.outputs = outputs
+    self.summary = summary
+    self.duration = duration
+    self.isExpanded = isExpanded
+    self.pinnedOpen = pinnedOpen
+    self.createdAt = createdAt
+  }
+
+  static func humanReadableName(from tool: String) -> String {
+    if tool.lowercased().contains("image") { return "Generate Image" }
+    if tool.lowercased().contains("search") { return "Search Web" }
+    if tool.lowercased().contains("scrape") { return "Read Website" }
+    return tool.replacingOccurrences(of: "_", with: " ").capitalized
+  }
+
+  mutating func appendLog(_ line: String) {
+    logs.append(line)
+    if logs.count > 20 { logs.removeFirst(logs.count - 20) }
+  }
+}

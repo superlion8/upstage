@@ -51,13 +51,13 @@ struct ChatView: View {
           .padding(.bottom, 8)
           .background(Theme.Colors.bg0.opacity(0.95))
 
-          // Messages Area
+          // Blocks Area
           ScrollViewReader { proxy in
             ScrollView {
-              LazyVStack(spacing: 24) {
-                ForEach($viewModel.messages) { $message in
-                  MessageBubbleView(message: $message)
-                    .id(message.id)
+              LazyVStack(spacing: 16) {
+                ForEach($viewModel.blocks) { $block in
+                  BlockRenderer(block: $block)
+                    .id(block.id)
                 }
 
                 // Spacer for input bar
@@ -67,19 +67,18 @@ struct ChatView: View {
               .padding(.top, 16)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: viewModel.messages.count) { _ in
-              scrollToBottom(proxy: proxy)
-            }
-            .onChange(of: viewModel.messages.last?.content.text) { _ in
+            .onChange(of: viewModel.blocks.count) { _ in
               scrollToBottom(proxy: proxy)
             }
           }
         }
 
         // Input Bar (Floating at bottom)
+        // Input Bar (Floating at bottom)
         ChatInputBar(
           text: $viewModel.inputText,
           selectedImages: $viewModel.selectedImages,
+          audioRecorder: viewModel.audioRecorder,
           isLoading: viewModel.isLoading,
           onSend: {
             Task {
@@ -96,6 +95,11 @@ struct ChatView: View {
             viewModel.removeImage(at: index)
           }
         )
+      }
+      .onTapGesture {
+        // Dismiss keyboard on tap outside
+        UIApplication.shared.sendAction(
+          #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       }
       .navigationBarHidden(true)
       // Sheets
@@ -150,9 +154,9 @@ struct ChatView: View {
   }
 
   private func scrollToBottom(proxy: ScrollViewProxy) {
-    if let lastMessage = viewModel.messages.last {
+    if let lastBlock = viewModel.blocks.last {
       withAnimation {
-        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+        proxy.scrollTo(lastBlock.id, anchor: .bottom)
       }
     }
   }
