@@ -73,30 +73,25 @@ struct ChatView: View {
           }
         }
 
-        // Input Bar (Floating at bottom)
-        // Input Bar (Floating at bottom)
-        ChatInputBar(
+        // Chat Composer (Doubao Style)
+        ChatComposer(
           text: $viewModel.inputText,
           selectedImages: $viewModel.selectedImages,
-          audioRecorder: viewModel.audioRecorder,
-          isLoading: viewModel.isLoading,
           onSend: {
-            // Dismiss keyboard first
+            // Dismiss keyboard
             UIApplication.shared.sendAction(
               #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             Task {
               await viewModel.sendMessage()
             }
           },
-          onQuickAction: { action in
-            handleQuickAction(action)
+          onOpenCamera: {
+            viewModel.showCameraPicker = true
           },
-          onUpload: {
+          onOpenPhotoLibrary: {
             viewModel.showImagePicker = true
           },
-          onRemoveImage: { index in
-            viewModel.removeImage(at: index)
-          }
+          audioRecorder: viewModel.audioRecorder
         )
       }
       .onTapGesture {
