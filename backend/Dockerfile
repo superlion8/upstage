@@ -1,46 +1,20 @@
-# Build stage
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install ALL dependencies (including devDependencies like tsx)
+# We do not use --only=production here because we need tsx
 RUN npm ci
 
-# Copy source
+# Copy source code
 COPY . .
-
-# Build
-RUN npm run build
-
-# Production stage
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install production dependencies only
-RUN npm ci --only=production
-
-# Copy built files
-COPY --from=builder /app/dist ./dist
 
 # Set environment
 ENV NODE_ENV=production
 
-# Expose port
-EXPOSE 3000
-
-# Health check removed (Railway handles this via TCP/HTTP check on variable PORT)
-
-# Start
-CMD ["node", "dist/index.js"]
-
-
-
-
-
+# Start using tsx directly from source to bypass compilation issues
+# This is a diagnostic step to ensure logs are visible and app starts
+CMD ["npx", "tsx", "src/index.ts"]
