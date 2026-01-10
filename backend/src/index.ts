@@ -5,9 +5,6 @@
  */
 
 import Fastify from 'fastify';
-
-// Immediate debug log
-try { process.stdout.write('Resource Monitor: Backend Starting...\n'); } catch (e) { }
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
@@ -100,23 +97,11 @@ async function buildServer() {
   // Routes
   // ============================================
 
-  // Health check - MUST NOT BLOCK (Railway depends on this)
+  // Health check
   fastify.get('/health', async () => {
+    const dbOk = await checkDatabaseConnection();
     return {
       status: 'ok',
-      timestamp: new Date().toISOString(),
-    };
-  });
-
-  // Readiness check - can be slow, checks DB
-  fastify.get('/readyz', async () => {
-    // Add timeout to prevent hanging
-    const dbOk = await Promise.race([
-      checkDatabaseConnection(),
-      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000)),
-    ]);
-    return {
-      status: dbOk ? 'ready' : 'degraded',
       timestamp: new Date().toISOString(),
       database: dbOk ? 'connected' : 'disconnected',
     };
@@ -175,8 +160,15 @@ async function buildServer() {
 
 async function start() {
   try {
-    // CRITICAL: Start server FIRST, then check DB asynchronously
-    // This ensures Railway sees a healthy port binding immediately
+    // Check database connection (don't exit if fails, just warn)
+    const dbOk = await checkDatabaseConnection();
+    if (dbOk) {
+      log.info('Database connected');
+    } else {
+      log.warn('Database not connected - some features may not work');
+    }
+
+    // Build and start server
     const server = await buildServer();
 
     await server.listen({
@@ -185,11 +177,6 @@ async function start() {
     });
 
     log.info(`🚀 Server running at http://${config.server.host}:${config.server.port}`);
-
-    // Now check DB async (non-blocking, won't prevent startup)
-    checkDatabaseConnection()
-      .then(ok => ok ? log.info('Database connected') : log.warn('Database not connected - some features may not work'))
-      .catch(err => log.warn({ err }, 'Database check failed'));
 
     // Debug: log all env var names on startup
     const allEnvVars = Object.keys(process.env).sort();

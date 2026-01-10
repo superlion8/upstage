@@ -59,22 +59,14 @@ const envSchema = z.object({
 
 // Parse and validate environment variables
 function loadConfig() {
-  console.log('🔍 [DEBUG] Loading Configuration...');
-  console.log(`- NODE_ENV: ${process.env.NODE_ENV}`);
-  console.log(`- DATABASE_URL: ${process.env.DATABASE_URL ? `Present (${process.env.DATABASE_URL.length} chars)` : 'MISSING'}`);
-  console.log(`- JWT_SECRET: ${process.env.JWT_SECRET ? `Present (${process.env.JWT_SECRET.length} chars)` : 'MISSING'}`);
-  console.log(`- GEMINI_API_KEY: ${process.env.GEMINI_API_KEY ? 'Present' : 'MISSING'}`);
-
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
-    console.error('❌ [FATAL] Invalid environment variables:');
-    console.error(JSON.stringify(result.error.format(), null, 2));
-    // Throw error to ensure it's logged as a crash with stack trace
-    throw new Error('Invalid Environment Variables');
+    console.error('❌ Invalid environment variables:');
+    console.error(result.error.format());
+    process.exit(1);
   }
 
-  console.log('✅ Configuration loaded successfully');
   return result.data;
 }
 
