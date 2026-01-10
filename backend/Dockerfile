@@ -36,5 +36,10 @@ ENV PORT=3000
 # Expose port (Documentation for Railway)
 EXPOSE 3000
 
-# Start (No Healthcheck - let Railway handle it)
+# Health check - Railway uses this to determine container readiness
+# start-period gives app time to initialize before checks begin
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+
+# Start
 CMD ["node", "dist/index.js"]
