@@ -8,8 +8,12 @@ import postgres from 'postgres';
 import { config } from '../config/index.js';
 import * as schema from './schema.js';
 
-// Create postgres connection
-const client = postgres(config.database.url);
+// Create postgres connection with timeout to prevent hanging
+const client = postgres(config.database.url, {
+  connect_timeout: 5, // 5 seconds max to connect
+  idle_timeout: 20,
+  max: 10,
+});
 
 // Create drizzle instance with schema
 export const db = drizzle(client, { schema });
