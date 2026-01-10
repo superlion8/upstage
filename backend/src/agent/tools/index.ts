@@ -433,13 +433,10 @@ export const AGENT_TOOLS = [
 
 export type ToolExecutor = (args: Record<string, any>, context: ToolContext) => Promise<any>;
 
-import type { ImageStore } from '../image-store';
-
 export interface ToolContext {
   userId: string;
   conversationId: string;
-  imageContext: Record<string, string>;  // image_ref -> image_data (legacy)
-  imageStore?: ImageStore;               // New: centralized image store
+  imageContext: Record<string, string>;  // image_ref -> image_data
 }
 
 /**
@@ -722,28 +719,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
 // ============================================
 
 /**
- * 解析图片引用 (使用 ImageStore 优先)
- * @param ref - 图片引用 (任何格式)
- * @param context - 工具上下文
- * @returns 图片数据 (base64 或 URL)
- */
-export function resolveImage(ref: string, context: ToolContext): string {
-  if (!ref) {
-    throw new Error('Image reference is required');
-  }
-
-  // Priority 1: Use ImageStore if available
-  if (context.imageStore) {
-    const data = context.imageStore.getData(ref);
-    if (data) return data;
-  }
-
-  // Priority 2: Fall back to legacy imageContext
-  return resolveImageRef(ref, context.imageContext);
-}
-
-/**
- * 解析图片引用 (Legacy - 仅使用 imageContext)
+ * 解析图片引用
  */
 function resolveImageRef(ref: string, imageContext: Record<string, string>): string {
   if (!ref) {

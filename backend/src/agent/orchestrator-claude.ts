@@ -9,7 +9,6 @@ import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { AGENT_SYSTEM_PROMPT } from './prompts/system.js';
 import { TOOL_EXECUTORS, AGENT_TOOLS } from './tools/index.js';
-import { createImageStore, ImageStore } from './image-store.js';
 
 const logger = createLogger('claude-orchestrator');
 
@@ -36,6 +35,11 @@ export interface ConversationMessage {
     };
 }
 
+export interface ClaudeStreamEvent {
+    type: 'thinking' | 'tool_start' | 'tool_result' | 'text_delta' | 'image' | 'done' | 'error';
+    data: any;
+}
+
 // ============================================
 // Anthropic Client
 // ============================================
@@ -45,17 +49,15 @@ function getAnthropicClient(): Anthropic {
     if (!apiKey) {
         throw new Error('ANTHROPIC_API_KEY is not configured');
     }
-    return new Anthropic({
-        apiKey,
-        baseURL: config.ai.claude?.apiBase,
-    });
+    return new Anthropic({ apiKey });
 }
 
 // ============================================
-// Tool Definitions
+// Tool Definitions for Claude
 // ============================================
 
 function getClaudeToolDefinitions(): Anthropic.Tool[] {
+    // Convert our tool definitions to Claude format
     return AGENT_TOOLS.map(tool => ({
         name: tool.name,
         description: tool.description,
@@ -67,13 +69,20 @@ function getClaudeToolDefinitions(): Anthropic.Tool[] {
 // Helpers
 // ============================================
 
+/**
+ * Remove large binary data from tool results before sending to LLM context
+ */
 function getLeanResult(result: any): any {
     if (!result) return result;
     const lean = JSON.parse(JSON.stringify(result));
+
+    // Recursively strip large strings (base64)
     const strip = (obj: any) => {
         if (!obj || typeof obj !== 'object') return;
+
         for (const key in obj) {
             if (typeof obj[key] === 'string') {
+                // Strip fields that typically contain base64 or large data URLs
                 if (key === 'data' || key === 'base64' || (key === 'url' && obj[key].startsWith('data:'))) {
                     obj[key] = `[REMOVED_BINARY_DATA_${obj[key].length}_CHARS]`;
                 }
@@ -82,52 +91,87 @@ function getLeanResult(result: any): any {
             }
         }
     };
+
     strip(lean);
     return lean;
+}
+
+// ============================================
+// Image Registry
+// ============================================
+
+/**
+ * Manages the mapping between simple user-friendly labels (image_1, image_2)
+ * and internal stable IDs or binary data.
+ */
+class ImageRegistry {
+    private labelToId = new Map<string, string>();
+    private idToLabel = new Map<string, string>();
+    private idToData = new Map<string, string>();
+    private counter = 0;
+
+    register(id: string, data: string, preferredLabel?: string) {
+        if (this.idToLabel.has(id)) {
+            return this.idToLabel.get(id)!;
+        }
+
+        this.counter++;
+        const label = preferredLabel || `image_${this.counter}`;
+        this.labelToId.set(label, id);
+        this.idToLabel.set(id, label);
+        this.idToData.set(id, data);
+        return label;
+    }
+
+    getLabel(id: string): string | undefined {
+        return this.idToLabel.get(id);
+    }
+
+    getId(label: string): string | undefined {
+        return this.labelToId.get(label);
+    }
+
+    getData(idOrLabel: string): string | undefined {
+        const id = this.getId(idOrLabel) || idOrLabel;
+        return this.idToData.get(id);
+    }
+
+    getSummary(): string {
+        const items = Array.from(this.labelToId.entries())
+            .map(([label, id]) => `- **${label}**: ID: ${id}`)
+            .join('\n');
+        return `### 图像注册表 (Image Registry)\n使用以下标签引用图片：\n${items}`;
+    }
+
+    getAllContext(): Record<string, string> {
+        return Object.fromEntries(this.idToData.entries());
+    }
 }
 
 // ============================================
 // Build Messages
 // ============================================
 
-function buildClaudeMessages(input: ClaudeAgentInput, imageStore: ImageStore): Anthropic.MessageParam[] {
+function buildClaudeMessages(input: ClaudeAgentInput, registry: ImageRegistry): Anthropic.MessageParam[] {
     const messages: Anthropic.MessageParam[] = [];
 
-    // 1. History
-    for (const msg of input.conversationHistory) {
+    // Add conversation history (text only - no images to save tokens)
+    for (const msg of input.conversationHistory.slice(-5)) {
         if (msg.role === 'user') {
+            // For history, only include text (images are too large for context)
             let historyText = msg.content.text || '';
             if (msg.content.images && msg.content.images.length > 0) {
-                const labels: string[] = [];
-                for (const img of msg.content.images) {
-                    const id = imageStore.register({
-                        id: img.id,
-                        data: img.data,
-                        type: 'reference',
-                        description: 'User uploaded image from history',
-                        aliases: [`image_${msg.content.images.indexOf(img) + 1} (history)`]
-                    });
-                    labels.push(id);
-                }
+                const labels = msg.content.images.map(img => registry.register(img.id, img.data));
                 historyText = `[用户在历史记录中上传了图片: ${labels.join(', ')}] ` + historyText;
             }
             if (historyText) {
                 messages.push({ role: 'user', content: historyText });
             }
         } else {
+            // Assistant messages - only text
             let assistantText = msg.content.text || '';
             if (msg.content.generatedImages && msg.content.generatedImages.length > 0) {
-                const labels: string[] = [];
-                for (const img of msg.content.generatedImages) {
-                    const id = imageStore.register({
-                        id: img.id,
-                        data: img.url,
-                        type: 'generated',
-                        description: 'Previously generated image',
-                        aliases: [img.url]
-                    });
-                    labels.push(id);
-                }
+                const labels = msg.content.generatedImages.map(img => registry.register(img.id, img.url));
                 assistantText += ` [已生成图片: ${labels.join(', ')}]`;
             }
             if (assistantText) {
@@ -136,148 +180,138 @@ function buildClaudeMessages(input: ClaudeAgentInput, imageStore: ImageStore): A
         }
     }
 
-    // 2. Current Input
-    const currentContent: Anthropic.MessageParam['content'] = [];
+    // Add current message
+    const currentContent: Anthropic.ContentBlockParam[] = [];
 
-    if (input.message.images && input.message.images.length > 0) {
-        for (let i = 0; i < input.message.images.length; i++) {
-            const img = input.message.images[i];
-            const mimeType = img.mimeType || 'image/jpeg';
-
-            const id = imageStore.register({
-                id: img.id,
-                data: img.data,
-                type: 'uploaded',
-                description: 'User uploaded image in current turn',
-                aliases: [`image_${i + 1}`]
-            });
-
+    // Add current images with registry
+    const currentLabels: string[] = [];
+    if (input.message.images) {
+        for (const img of input.message.images) {
             const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
-
             currentContent.push({
                 type: 'image',
                 source: {
                     type: 'base64',
-                    media_type: mimeType as any,
+                    media_type: (img.mimeType || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
                     data: base64Data,
                 },
             });
-
-            currentContent.push({
-                type: 'text',
-                text: `[Uploaded Image ID: ${id}]`
-            });
+            const label = registry.register(img.id, img.data);
+            currentLabels.push(label);
         }
     }
 
+    // Add text with image registry info
+    let textContent = '';
+    if (currentLabels.length > 0) {
+        textContent += `[当前上传的图片引用: ${currentLabels.join(', ')}]\n\n`;
+    }
+    textContent += registry.getSummary() + '\n\n';
+
     if (input.message.text) {
-        currentContent.push({
-            type: 'text',
-            text: input.message.text,
-        });
+        textContent += input.message.text;
+    }
+    if (textContent) {
+        currentContent.push({ type: 'text', text: textContent });
     }
 
     if (currentContent.length > 0) {
-        messages.push({ role: 'user', content: currentContent as any });
+        messages.push({ role: 'user', content: currentContent });
     }
 
     return messages;
 }
 
 // ============================================
-// Main Runner
+// Main Agent Stream Function
 // ============================================
 
-export async function runClaudeAgent(input: ClaudeAgentInput): Promise<{
-    response: {
-        text: string;
-        generatedImages: Array<{ id: string; url: string }>;
-        guiRequest?: any;
-    };
-    toolCalls: any[];
-    thinking: string;
-}> {
+const MAX_ITERATIONS = 5;
+
+export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGenerator<ClaudeStreamEvent> {
+    logger.info('Starting Claude agent run', {
+        userId: input.userId,
+        conversationId: input.conversationId,
+        hasText: !!input.message.text,
+        imageCount: input.message.images?.length || 0,
+    });
+
     const client = getAnthropicClient();
-    const imageStore = createImageStore();
-    const messages = buildClaudeMessages(input, imageStore);
-    const toolDefinitions = getClaudeToolDefinitions();
+    const model = config.ai.claude?.model || 'claude-sonnet-4-5-20250929';
+    const tools = getClaudeToolDefinitions();
+    const registry = new ImageRegistry();
+    let messages = buildClaudeMessages(input, registry);
 
-    const toolCalls: any[] = [];
-    const generatedImages: Array<{ id: string; url: string }> = [];
-    let thinking = '';
-    let finalResponseText = '';
+    try {
+        for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+            logger.info(`Claude iteration ${iteration + 1}/${MAX_ITERATIONS}`);
 
-    let iteration = 0;
-    const maxIterations = 5;
-
-    while (iteration < maxIterations) {
-        iteration++;
-        logger.info(`Claude iteration ${iteration}/${maxIterations}`);
-
-        const imagePrompt = imageStore.getAvailableImagesPrompt();
-        const systemPrompt = `${AGENT_SYSTEM_PROMPT}\n\n${imagePrompt}`;
-
-        try {
+            // Start streaming from Claude
             const stream = client.messages.stream({
-                model: 'claude-3-7-sonnet-20250219',
-                max_tokens: 4096,
-                system: systemPrompt,
-                messages: messages,
-                tools: toolDefinitions,
+                model,
+                max_tokens: 16000,
+                thinking: {
+                    type: 'enabled',
+                    budget_tokens: 8000,
+                },
+                system: AGENT_SYSTEM_PROMPT + '\n\n## 回复格式\n请使用 Markdown 格式回复，包括标题、列表、粗体等，让回复更加清晰美观。',
+                tools,
+                messages,
             });
 
-            let currentContentBlock: any = {};
+            const toolUses: Array<{ id: string; name: string; input: any }> = [];
 
+            // Iterate over the stream
             for await (const event of stream) {
-                if (event.type === 'content_block_start') {
-                    if (event.content_block.type === 'tool_use') {
-                        currentContentBlock = {
-                            type: 'tool_use',
-                            id: event.content_block.id,
-                            name: event.content_block.name,
-                            input: '',
+                if (event.type === 'content_block_delta') {
+                    if (event.delta.type === 'thinking_delta') {
+                        yield {
+                            type: 'thinking',
+                            data: { content: event.delta.thinking },
+                        };
+                    } else if (event.delta.type === 'text_delta') {
+                        yield {
+                            type: 'text_delta',
+                            data: { delta: event.delta.text },
                         };
                     }
-                } else if (event.type === 'content_block_delta') {
-                    if (event.delta.type === 'text_delta') {
-                        const text = event.delta.text;
-                        if (!currentContentBlock.text) currentContentBlock.text = '';
-                        currentContentBlock.text += text;
-                        if (!currentContentBlock.type) currentContentBlock.type = 'text';
-
-                    } else if (event.delta.type === 'input_json_delta') {
-                        if (currentContentBlock.type === 'tool_use') {
-                            currentContentBlock.input += event.delta.partial_json;
-                        }
-                    } else if (event.delta.type === 'thinking_delta') {
-                        thinking += event.delta.thinking;
-                    }
-                } else if (event.type === 'content_block_stop') {
-                    if (currentContentBlock.type === 'tool_use') {
-                        // pass
-                    } else if (currentContentBlock.type === 'text') {
-                        finalResponseText += currentContentBlock.text;
-                    }
-                    currentContentBlock = {};
                 }
             }
 
-            const finalMessage = await stream.finalMessage();
-            messages.push({ role: 'assistant', content: finalMessage.content });
+            // Final message result
+            const response = await stream.finalMessage();
 
-            const toolUseBlocks = finalMessage.content.filter((c: any) => c.type === 'tool_use');
+            // Collect tool uses from final message
+            for (const block of response.content) {
+                if (block.type === 'tool_use') {
+                    toolUses.push({
+                        id: block.id,
+                        name: block.name,
+                        input: block.input,
+                    });
+                }
+            }
 
-            if (toolUseBlocks.length === 0) {
-                logger.info('Claude response complete', { stopReason: finalMessage.stop_reason });
+            logger.info('Claude response complete', {
+                stopReason: response.stop_reason,
+                contentBlocks: response.content.length,
+                hasToolUses: toolUses.length > 0
+            });
+
+            // If no tool calls, we're done
+            if (response.stop_reason !== 'tool_use' || toolUses.length === 0) {
+                logger.info('Claude finished (no tool calls)');
                 break;
             }
 
-            const toolResults: any[] = [];
+            // Execute tools
+            const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
-            for (const toolUse of toolUseBlocks) {
-                if (toolUse.type !== 'tool_use') continue;
-
-                logger.info(`Executing tool: ${toolUse.name}`, { input: toolUse.input });
+            for (const toolUse of toolUses) {
+                yield {
+                    type: 'tool_start',
+                    data: { tool: toolUse.name, arguments: toolUse.input },
+                };
 
                 try {
                     const executor = TOOL_EXECUTORS[toolUse.name];
@@ -285,240 +319,137 @@ export async function runClaudeAgent(input: ClaudeAgentInput): Promise<{
                         throw new Error(`Unknown tool: ${toolUse.name}`);
                     }
 
-                    const result = await executor(toolUse.input as any, {
+                    // Resolve labels to actual data in tool input (recursively)
+                    const resolveLabels = (obj: any): any => {
+                        if (!obj || typeof obj !== 'object') return obj;
+                        if (Array.isArray(obj)) return obj.map(resolveLabels);
+
+                        const resolved: any = {};
+                        for (const key in obj) {
+                            if (typeof obj[key] === 'string') {
+                                // Resolve label (image_1) or ID to raw data from registry
+                                const data = registry.getData(obj[key]);
+                                resolved[key] = data || obj[key];
+                            } else if (typeof obj[key] === 'object') {
+                                resolved[key] = resolveLabels(obj[key]);
+                            } else {
+                                resolved[key] = obj[key];
+                            }
+                        }
+                        return resolved;
+                    };
+
+                    const resolvedInput = resolveLabels(toolUse.input);
+
+                    const result = await executor(resolvedInput, {
                         userId: input.userId,
                         conversationId: input.conversationId,
-                        imageContext: imageStore.getAllContext(),
-                        imageStore: imageStore,
+                        imageContext: registry.getAllContext(),
                     });
 
+                    // Update registry if tool generated images
                     if (result.images) {
                         for (const img of result.images) {
-                            const id = imageStore.register({
-                                id: img.id,
-                                data: img.data || img.url,
-                                type: 'generated',
-                                description: `Generated by tool ${toolUse.name}`,
-                                aliases: [img.url, img.id]
-                            });
-                            generatedImages.push({ id: img.id, url: img.url });
+                            // Always register base64 data (not URL) so subsequent tools can use it
+                            const dataToRegister = img.data || img.url;
+                            registry.register(img.id, dataToRegister);
+                            yield {
+                                type: 'image',
+                                data: { id: img.id, url: img.url, data: img.data },
+                            };
                         }
                     }
 
-                    const leanResult = getLeanResult(result);
+                    yield {
+                        type: 'tool_result',
+                        data: { tool: toolUse.name, arguments: toolUse.input, result },
+                    };
 
                     toolResults.push({
                         type: 'tool_result',
                         tool_use_id: toolUse.id,
-                        content: JSON.stringify(leanResult),
-                        is_error: false
-                    });
-
-                    toolCalls.push({
-                        tool: toolUse.name,
-                        arguments: toolUse.input,
-                        result: leanResult,
-                        timestamp: new Date()
+                        content: JSON.stringify(getLeanResult(result)),
                     });
 
                 } catch (error: any) {
-                    logger.error(`Tool execution failed`, { tool: toolUse.name, error: error.message });
+                    logger.error('Tool execution failed', { tool: toolUse.name, error: error.message });
+
                     toolResults.push({
                         type: 'tool_result',
                         tool_use_id: toolUse.id,
-                        content: `Error: ${error.message}`,
-                        is_error: true
-                    });
-
-                    toolCalls.push({
-                        tool: toolUse.name,
-                        arguments: toolUse.input,
-                        result: { success: false, message: error.message },
-                        timestamp: new Date()
+                        content: JSON.stringify({ success: false, error: error.message }),
+                        is_error: true,
                     });
                 }
             }
 
-            if (toolResults.length > 0) {
-                messages.push({ role: 'user', content: toolResults });
-            }
+            // Add assistant response and tool results to messages for next iteration
+            messages.push({
+                role: 'assistant',
+                content: response.content,
+            });
 
-        } catch (error) {
-            logger.error('Claude API error', error);
-            throw error;
+            messages.push({
+                role: 'user',
+                content: toolResults,
+            });
+        }
+
+        // Send done event
+        yield {
+            type: 'done',
+            data: { conversationId: input.conversationId },
+        };
+
+    } catch (error: any) {
+        logger.error('Claude agent error', { error: error.message, stack: error.stack });
+        yield {
+            type: 'error',
+            data: { message: error.message },
+        };
+    }
+}
+
+// ============================================
+// Non-Streaming Version (for compatibility)
+// ============================================
+
+export async function runClaudeAgent(input: ClaudeAgentInput): Promise<{
+    response: {
+        text: string;
+        generatedImages?: Array<{ id: string; url: string }>;
+    };
+    toolCalls: any[];
+    thinking?: string;
+}> {
+    const toolCalls: any[] = [];
+    let finalText = '';
+    const generatedImages: Array<{ id: string; url: string }> = [];
+
+    for await (const event of runClaudeAgentStream(input)) {
+        switch (event.type) {
+            case 'tool_result':
+                toolCalls.push({
+                    tool: event.data.tool,
+                    arguments: event.data.arguments,
+                    result: event.data.result,
+                    timestamp: new Date(),
+                });
+                break;
+            case 'text_delta':
+                finalText += event.data.delta;
+                break;
+            case 'image':
+                generatedImages.push({ id: event.data.id, url: event.data.url });
+                break;
         }
     }
 
     return {
         response: {
-            text: finalResponseText,
+            text: finalText || '任务完成！如果需要进一步调整，请告诉我。',
             generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
         },
         toolCalls,
-        thinking,
     };
-}
-
-// ============================================
-// Streaming Runner
-// ============================================
-
-export type ClaudeStreamEvent =
-    | { type: 'text_delta'; data: { delta: string } }
-    | { type: 'tool_result'; data: { tool: string; result: any; arguments: any } }
-    | { type: 'image'; data: { id: string; url: string; mimeType: string } }
-    | { type: 'thinking'; data: { thinking: string } } // Usually handled by text delta in some implementations, but let's be explicit
-    ;
-
-export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGenerator<ClaudeStreamEvent> {
-    const client = getAnthropicClient();
-    const imageStore = createImageStore();
-    const messages = buildClaudeMessages(input, imageStore);
-    const toolDefinitions = getClaudeToolDefinitions();
-
-    let iteration = 0;
-    const maxIterations = 5;
-
-    // We maintain local history for the loop
-    const localMessages = [...messages];
-
-    while (iteration < maxIterations) {
-        iteration++;
-        logger.info(`Claude stream iteration ${iteration}/${maxIterations}`);
-
-        const imagePrompt = imageStore.getAvailableImagesPrompt();
-        const systemPrompt = `${AGENT_SYSTEM_PROMPT}\n\n${imagePrompt}`;
-
-        const stream = client.messages.stream({
-            model: 'claude-3-7-sonnet-20250219',
-            max_tokens: 4096,
-            system: systemPrompt,
-            messages: localMessages,
-            tools: toolDefinitions,
-        });
-
-        let currentContentBlock: any = {};
-
-        // --- 1. Stream the API response ---
-        for await (const event of stream) {
-            if (event.type === 'content_block_start') {
-                if (event.content_block.type === 'tool_use') {
-                    currentContentBlock = {
-                        type: 'tool_use',
-                        id: event.content_block.id,
-                        name: event.content_block.name,
-                        input: '',
-                    };
-                }
-            } else if (event.type === 'content_block_delta') {
-                if (event.delta.type === 'text_delta') {
-                    if (!currentContentBlock.text) currentContentBlock.text = '';
-                    currentContentBlock.text += event.delta.text;
-                    currentContentBlock.type = 'text';
-
-                    // Yield text delta
-                    yield { type: 'text_delta', data: { delta: event.delta.text } };
-
-                } else if (event.delta.type === 'input_json_delta') {
-                    if (currentContentBlock.type === 'tool_use') {
-                        currentContentBlock.input += event.delta.partial_json;
-                    }
-                } else if (event.delta.type === 'thinking_delta') {
-                    // Yield thinking delta if needed
-                    // yield { type: 'text_delta', data: { delta: `[Thinking] ${event.delta.thinking}` } }; 
-                }
-            } else if (event.type === 'content_block_stop') {
-                if (currentContentBlock.type === 'text') {
-                    // done with text block
-                }
-                currentContentBlock = {};
-            }
-        }
-
-        // --- 2. Handle Tool Execution ---
-        const finalMessage = await stream.finalMessage();
-        localMessages.push({ role: 'assistant', content: finalMessage.content });
-
-        const toolUseBlocks = finalMessage.content.filter((c: any) => c.type === 'tool_use');
-
-        if (toolUseBlocks.length === 0) {
-            break; // Done
-        }
-
-        const toolResults: any[] = [];
-
-        for (const toolUse of toolUseBlocks) {
-            if (toolUse.type !== 'tool_use') continue;
-
-            logger.info(`Executing tool (stream): ${toolUse.name}`, { input: toolUse.input });
-
-            try {
-                const executor = TOOL_EXECUTORS[toolUse.name];
-                if (!executor) throw new Error(`Unknown tool: ${toolUse.name}`);
-
-                const result = await executor(toolUse.input as any, {
-                    userId: input.userId,
-                    conversationId: input.conversationId,
-                    imageContext: imageStore.getAllContext(),
-                    imageStore: imageStore,
-                });
-
-                // Handle generated images
-                if (result.images) {
-                    for (const img of result.images) {
-                        const id = imageStore.register({
-                            id: img.id,
-                            data: img.data || img.url,
-                            type: 'generated',
-                            description: `Generated by tool ${toolUse.name}`,
-                            aliases: [img.url, img.id]
-                        });
-
-                        // Yield image event so frontend can display it
-                        yield {
-                            type: 'image',
-                            data: {
-                                id: img.id,
-                                url: img.url,
-                                mimeType: img.mimeType || 'image/jpeg'
-                            }
-                        };
-                    }
-                }
-
-                const leanResult = getLeanResult(result);
-
-                toolResults.push({
-                    type: 'tool_result',
-                    tool_use_id: toolUse.id,
-                    content: JSON.stringify(leanResult),
-                    is_error: false
-                });
-
-                // Yield tool result to client
-                yield {
-                    type: 'tool_result',
-                    data: {
-                        tool: toolUse.name,
-                        result: leanResult,
-                        arguments: toolUse.input
-                    }
-                };
-
-            } catch (error: any) {
-                logger.error(`Tool execution failed`, { tool: toolUse.name, error: error.message });
-                toolResults.push({
-                    type: 'tool_result',
-                    tool_use_id: toolUse.id,
-                    content: `Error: ${error.message}`,
-                    is_error: true
-                });
-                // Yield error result?
-            }
-        }
-
-        if (toolResults.length > 0) {
-            localMessages.push({ role: 'user', content: toolResults });
-        }
-    }
 }
