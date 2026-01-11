@@ -58,50 +58,42 @@ function sendSSE(reply: FastifyReply, event: string, data: any) {
 }
 
 /**
- * Save image to disk and return accessible URL
+ * Process image for persistence
+ * Since Railway filesystem is ephemeral, we keep the data URL directly
+ * This ensures images are always accessible without file storage issues
  */
 async function persistImage(id: string, base64Data: string, userId: string): Promise<string> {
-  if (!base64Data || !base64Data.startsWith('data:')) {
+  // If it's already a data URL or HTTP URL, return as-is
+  if (!base64Data) {
     return base64Data;
   }
 
-  try {
-    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) return base64Data;
+  // If it's an HTTP URL (not data URL), return it
+  if (base64Data.startsWith('http')) {
+    return base64Data;
+  }
 
-    const mimeType = matches[1];
-    const buffer = Buffer.from(matches[2], 'base64');
-    const extension = mimeType.split('/')[1] || 'jpg';
-
-    const filename = `${id}.${extension}`;
-    const uploadDir = path.join(process.cwd(), 'public/uploads');
-    const filePath = path.join(uploadDir, filename);
-
-    // Ensure directory exists
-    await fs.mkdir(uploadDir, { recursive: true });
-    await fs.writeFile(filePath, buffer);
-
-    const publicUrl = `/api/chat/assets/${filename}`;
-
-    // Also track in assets table
+  // For data URLs, just return them directly - iOS AsyncImage can handle data URLs
+  if (base64Data.startsWith('data:')) {
+    // Track in assets table for history (optional, don't fail if it errors)
     try {
       await db.insert(assetsTable).values({
         userId,
         type: 'generated',
-        name: filename,
-        url: publicUrl,
-        mimeType: mimeType,
-        fileSize: buffer.length,
+        name: `${id}`,
+        url: base64Data.substring(0, 100) + '...', // Don't store full base64 in assets table
+        mimeType: 'image/png',
+        fileSize: base64Data.length,
       });
     } catch (dbErr) {
-      logger.error('Failed to insert asset into DB', { error: dbErr.message });
+      // Ignore DB errors - this is optional tracking
     }
 
-    return publicUrl;
-  } catch (error) {
-    logger.error('Failed to persist image', { error: error.message, id });
     return base64Data;
   }
+
+  // If it's raw base64, wrap it as a data URL
+  return `data:image/png;base64,${base64Data}`;
 }
 
 // ============================================
