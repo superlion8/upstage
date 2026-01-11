@@ -275,11 +275,26 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
               textContent: finalText,
               thinking: thinkingContent || null,  // Save thinking content
               generatedImageUrls: generatedImages.map(img => img.url),
-              toolCalls: toolCalls.map(tc => ({
-                tool: tc.tool,
-                args: tc.arguments,
-                result: tc.result
-              })),
+              toolCalls: toolCalls.map(tc => {
+                // Create a lean version of the result for DB storage
+                // to avoid bloating the JSONB column with base64 images or large text
+                const leanResult = { ...tc.result };
+
+                // Remove heavy fields
+                if (leanResult.images) {
+                  delete leanResult.images;
+                  leanResult.imageCount = tc.result.images?.length;
+                }
+                if (leanResult.data && leanResult.data.length > 1000) {
+                  leanResult.data = leanResult.data.substring(0, 100) + '... (truncated)';
+                }
+
+                return {
+                  tool: tc.tool,
+                  args: tc.arguments,
+                  result: leanResult
+                };
+              }),
               status: forceSent ? 'sent' : 'generating',
               updatedAt: new Date(),
             })
