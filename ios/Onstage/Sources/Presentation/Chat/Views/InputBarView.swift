@@ -105,15 +105,19 @@ struct ChatComposer: View {
           )
           .simultaneousGesture(
             // Long-press to record (on entire input area)
+            // Only enabled when NOT in typing mode to avoid interfering with TextField
             DragGesture(minimumDistance: 0)
               .onChanged { value in
+                // Don't trigger recording when TextField is focused (user is editing text)
+                guard !isTextFieldFocused else { return }
+
                 // Only start if held for a moment (not just a tap)
-                if mode == .idle || mode == .typing {
+                if mode == .idle {
                   // Wait for actual drag or hold
                   if value.time.timeIntervalSince1970 > 0.2 || abs(value.translation.height) > 5 {
                     handleDragChanged(value)
                   }
-                } else {
+                } else if mode == .recording || mode == .cancelReady {
                   handleDragChanged(value)
                 }
               }
