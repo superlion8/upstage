@@ -365,9 +365,10 @@ export async function runClaudeAgent(input: ClaudeAgentInput): Promise<{
 
 export type ClaudeStreamEvent =
     | { type: 'text_delta'; data: { delta: string } }
+    | { type: 'thinking'; data: { content: string } }
+    | { type: 'tool_start'; data: { tool: string; displayName: string; arguments: any } }
     | { type: 'tool_result'; data: { tool: string; result: any; arguments: any } }
     | { type: 'image'; data: { id: string; url: string; mimeType: string } }
-    | { type: 'thinking'; data: { thinking: string } } // Usually handled by text delta in some implementations, but let's be explicit
     ;
 
 export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGenerator<ClaudeStreamEvent> {
@@ -424,8 +425,8 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                         currentContentBlock.input += event.delta.partial_json;
                     }
                 } else if (event.delta.type === 'thinking_delta') {
-                    // Yield thinking delta if needed
-                    // yield { type: 'text_delta', data: { delta: `[Thinking] ${event.delta.thinking}` } }; 
+                    // Yield thinking event for frontend display
+                    yield { type: 'thinking', data: { content: event.delta.thinking } };
                 }
             } else if (event.type === 'content_block_stop') {
                 if (currentContentBlock.type === 'text') {
@@ -451,6 +452,16 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
             if (toolUse.type !== 'tool_use') continue;
 
             logger.info(`Executing tool (stream): ${toolUse.name}`, { input: toolUse.input });
+
+            // Yield tool_start event BEFORE executing
+            yield {
+                type: 'tool_start',
+                data: {
+                    tool: toolUse.name,
+                    displayName: toolUse.name.replace(/_/g, ' '),
+                    arguments: toolUse.input
+                }
+            };
 
             try {
                 const executor = TOOL_EXECUTORS[toolUse.name];
