@@ -75,8 +75,10 @@ struct ChatView: View {
                     .id(block.id)
                 }
 
-                // Spacer for input bar
-                Spacer().frame(height: 100)
+                // Bottom anchor for reliable scrolling
+                Color.clear
+                  .frame(height: 100)
+                  .id("bottomAnchor")
               }
               .padding(.horizontal, Theme.Layout.padding)
               .padding(.top, 16)
@@ -84,6 +86,12 @@ struct ChatView: View {
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: viewModel.blocks.count) { _ in
               scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: viewModel.isLoading) { isLoading in
+              // Scroll when streaming starts
+              if isLoading {
+                scrollToBottom(proxy: proxy)
+              }
             }
           }
         }
@@ -172,10 +180,8 @@ struct ChatView: View {
   }
 
   private func scrollToBottom(proxy: ScrollViewProxy) {
-    if let lastBlock = viewModel.blocks.last {
-      withAnimation {
-        proxy.scrollTo(lastBlock.id, anchor: .bottom)
-      }
+    withAnimation(.easeOut(duration: 0.2)) {
+      proxy.scrollTo("bottomAnchor", anchor: .bottom)
     }
   }
 

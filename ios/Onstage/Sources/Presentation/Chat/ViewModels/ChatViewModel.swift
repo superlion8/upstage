@@ -106,12 +106,7 @@ final class ChatViewModel: ObservableObject {
     // Cancel any active SSE connection to prevent "network connection was lost" errors
     if isLoading {
       sseClient.cancel()
-      // Add interrupted message block
-      let interruptedBlock = AssistantMessageBlock(
-        text: "⚠️ 回复因后台暂停而中断，请重新发送消息",
-        status: .failed
-      )
-      blocks.append(.assistantMessage(interruptedBlock))
+      // Don't show interrupted message - app will reload messages when returning to foreground
       isLoading = false
     }
   }

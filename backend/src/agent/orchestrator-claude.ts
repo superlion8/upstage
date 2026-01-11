@@ -506,6 +506,8 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
                 }
 
                 const leanResult = getLeanResult(result);
+                // Remove images from tool_result since they are sent via separate image events
+                delete leanResult.images;
 
                 toolResults.push({
                     type: 'tool_result',
