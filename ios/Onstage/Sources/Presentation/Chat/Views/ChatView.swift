@@ -93,6 +93,10 @@ struct ChatView: View {
                 scrollToBottom(proxy: proxy)
               }
             }
+            .onChange(of: viewModel.scrollTrigger) { _ in
+              // Scroll during streaming content updates
+              scrollToBottom(proxy: proxy)
+            }
           }
         }
 

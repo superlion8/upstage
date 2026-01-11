@@ -16,6 +16,7 @@ final class ChatViewModel: ObservableObject {
   @Published var showActionSheet: ActionSheetType?
   @Published var showImagePicker: Bool = false
   @Published var showCameraPicker: Bool = false
+  @Published var scrollTrigger: Int = 0  // Increment to trigger scroll during streaming
 
   // MARK: - Demo Mode Flag
 
@@ -317,6 +318,7 @@ final class ChatViewModel: ObservableObject {
     {
       block.content += content
       blocks[index] = .thinking(block)
+      scrollTrigger += 1  // Trigger scroll during streaming
     } else {
       // Close any running assistant block first
       closeCurrentAssistantBlock()
@@ -326,6 +328,7 @@ final class ChatViewModel: ObservableObject {
       let block = ThinkingBlock(content: content)
       currentThinkingBlockId = block.id
       blocks.append(.thinking(block))
+      scrollTrigger += 1  // Trigger scroll for new block
     }
   }
 
@@ -417,11 +420,13 @@ final class ChatViewModel: ObservableObject {
     {
       block.text += text
       blocks[index] = .assistantMessage(block)
+      scrollTrigger += 1  // Trigger scroll during streaming
     } else {
       // Create new assistant message block
       let block = AssistantMessageBlock(text: text)
       currentAssistantBlockId = block.id
       blocks.append(.assistantMessage(block))
+      scrollTrigger += 1  // Trigger scroll for new block
     }
   }
 
