@@ -28,8 +28,56 @@ class AppState: ObservableObject {
     case profile
   }
 
+  private var reAuthObserver: NSObjectProtocol?
+
   init() {
     checkAuthStatus()
+    setupReAuthObserver()
+  }
+
+  deinit {
+    if let observer = reAuthObserver {
+      NotificationCenter.default.removeObserver(observer)
+    }
+  }
+
+  private func setupReAuthObserver() {
+    reAuthObserver = NotificationCenter.default.addObserver(
+      forName: .userNeedsReAuth,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor in
+        await self?.reAuthenticate()
+      }
+    }
+  }
+
+  /// Called when backend returns 401 - clear stale token and re-login as guest
+  @MainActor
+  func reAuthenticate() async {
+    print("🔄 Re-authenticating user...")
+    // Clear old credentials
+    KeychainManager.shared.clearAll()
+
+    // Get device ID for guest login
+    let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+    let deviceName = UIDevice.current.name
+
+    do {
+      let user = try await AuthRepository.shared.guestLogin(
+        deviceId: deviceId,
+        deviceName: deviceName
+      )
+      currentUser = user
+      isAuthenticated = true
+      print("✅ Re-authenticated as: \(user.id)")
+    } catch {
+      print("❌ Re-authentication failed: \(error)")
+      // Fall back to logout state
+      isAuthenticated = false
+      currentUser = nil
+    }
   }
 
   private func checkAuthStatus() {
