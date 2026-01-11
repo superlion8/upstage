@@ -6,7 +6,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { db, conversations, messages } from '../db/index.js';
+import { db, conversations, messages, users } from '../db/index.js';
 import { eq, desc } from 'drizzle-orm';
 import { runClaudeAgentStream, type ClaudeAgentInput, type ConversationMessage } from '../agent/orchestrator-claude.js';
 import { config } from '../config/index.js';
@@ -138,6 +138,22 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
     const body = streamMessageSchema.parse(request.body);
 
     logger.info('Starting stream', { userId, hasText: !!body.text, imageCount: body.images?.length || 0 });
+
+    // Validate user exists in DB BEFORE starting SSE stream
+    // This prevents crashes when user was deleted (e.g., DB reset)
+    const userExists = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { id: true },
+    });
+
+    if (!userExists) {
+      logger.warn('User not found in DB, requesting re-auth', { userId });
+      return reply.status(401).send({
+        success: false,
+        error: 'User not found. Please re-authenticate.',
+        code: 'USER_NOT_FOUND',
+      });
+    }
 
     // Set SSE headers
     reply.raw.writeHead(200, {
