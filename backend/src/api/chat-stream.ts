@@ -94,9 +94,9 @@ async function persistImage(id: string, base64Data: string, userId: string): Pro
     const extension = mimeType.split('/')[1] || 'png';
     const filename = `${id}.${extension}`;
 
-    // Use Railway Volume mount path if available, else use local uploads dir
-    const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(process.cwd(), 'public/uploads');
-    const uploadDir = path.join(volumePath, 'images');
+    // Use /app/uploads (Railway Volume mount path) in production
+    const uploadsDir = process.env.NODE_ENV === 'production' ? '/app/uploads' : path.join(process.cwd(), 'public/uploads');
+    const uploadDir = path.join(uploadsDir, 'images');
     const filePath = path.join(uploadDir, filename);
 
     // Ensure directory exists
@@ -127,9 +127,9 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
    */
   fastify.get('/assets/:filename', async (request, reply) => {
     const { filename } = request.params;
-    // Use Railway Volume mount path if available
-    const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(process.cwd(), 'public/uploads');
-    const filePath = path.join(volumePath, 'images', filename);
+    // Use /app/uploads (Railway Volume) in production
+    const uploadsDir = process.env.NODE_ENV === 'production' ? '/app/uploads' : path.join(process.cwd(), 'public/uploads');
+    const filePath = path.join(uploadsDir, 'images', filename);
 
     try {
       const buffer = await fs.readFile(filePath);
