@@ -452,12 +452,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 搭配师
   // ============================================
   stylist: async (args, context) => {
-    const productImage = resolveImageRef(args.product_image, context.imageContext);
+    const productImage = await resolveImage(args.product_image, context);
     const modelImage = args.model_image
-      ? resolveImageRef(args.model_image, context.imageContext)
+      ? await resolveImage(args.model_image, context)
       : undefined;
     const sceneImage = args.scene_image
-      ? resolveImageRef(args.scene_image, context.imageContext)
+      ? await resolveImage(args.scene_image, context)
       : undefined;
 
     const result = await generateOutfitInstruct({
@@ -512,7 +512,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
 
   generate_sora_video: async (args, context) => {
     const previewImage = args.preview_image
-      ? resolveImageRef(args.preview_image, context.imageContext)
+      ? await resolveImage(args.preview_image, context)
       : undefined;
 
     const result = await generateSoraVideo(args.prompt, { preview_image: previewImage });
@@ -529,7 +529,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 图像分析
   // ============================================
   analyze_image: async (args, context) => {
-    const imageData = resolveImageRef(args.image_ref, context.imageContext);
+    const imageData = await resolveImage(args.image_ref, context);
 
     const result = await analyzeImage({
       imageData,
@@ -549,12 +549,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 生成模特图
   // ============================================
   generate_model_image: async (args, context) => {
-    const productImage = resolveImageRef(args.product_image, context.imageContext);
+    const productImage = await resolveImage(args.product_image, context);
     const modelReference = args.model_reference
-      ? resolveImageRef(args.model_reference, context.imageContext)
+      ? await resolveImage(args.model_reference, context)
       : undefined;
     const sceneReference = args.scene_reference
-      ? resolveImageRef(args.scene_reference, context.imageContext)
+      ? await resolveImage(args.scene_reference, context)
       : undefined;
 
     const images = await generateModelImage({
@@ -580,10 +580,11 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 换搭配
   // ============================================
   change_outfit: async (args, context) => {
-    const originalImage = resolveImageRef(args.original_image, context.imageContext);
-    const outfitImages = args.outfit_images.map((ref: string) =>
-      resolveImageRef(ref, context.imageContext)
-    );
+    const originalImage = await resolveImage(args.original_image, context);
+    // Wait, map returns array of promises, need Promise.all
+    const outfitImages = await Promise.all(args.outfit_images.map((ref: string) =>
+      resolveImage(ref, context)
+    ));
 
     const images = await changeOutfit({
       originalImage,
@@ -604,9 +605,9 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 换模特
   // ============================================
   change_model: async (args, context) => {
-    const originalImage = resolveImageRef(args.original_image, context.imageContext);
+    const originalImage = await resolveImage(args.original_image, context);
     const modelReference = args.model_reference
-      ? resolveImageRef(args.model_reference, context.imageContext)
+      ? await resolveImage(args.model_reference, context)
       : undefined;
 
     const images = await changeModel({
@@ -628,8 +629,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 复刻参考图
   // ============================================
   replicate_reference: async (args, context) => {
-    const productImage = resolveImageRef(args.product_image, context.imageContext);
-    const referenceImage = resolveImageRef(args.reference_image, context.imageContext);
+    const productImage = await resolveImage(args.product_image, context);
+    const referenceImage = await resolveImage(args.reference_image, context);
 
     const images = await replicateReference({
       productImage,
@@ -650,7 +651,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // ============================================
   edit_image: async (args, context) => {
     // Use resolveImage which prioritizes ImageStore (has original base64)
-    const image = resolveImage(args.image_ref, context);
+    const image = await resolveImage(args.image_ref, context);
 
     const images = await editImage({
       image,
@@ -728,7 +729,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
  * @param context - 工具上下文
  * @returns 图片数据 (base64 或 URL)
  */
-export function resolveImage(ref: string, context: ToolContext): string {
+export async function resolveImage(ref: string, context: ToolContext): Promise<string> {
   if (!ref) {
     throw new Error('Image reference is required');
   }
@@ -736,7 +737,37 @@ export function resolveImage(ref: string, context: ToolContext): string {
   // Priority 1: Use ImageStore if available
   if (context.imageStore) {
     const data = context.imageStore.getData(ref);
-    if (data) return data;
+    if (data) {
+      // Check if data is a local URL path (e.g., from history)
+      if (typeof data === 'string' && data.startsWith('/api/chat/assets/')) {
+        try {
+          const filename = data.split('/').pop();
+          if (filename) {
+            // Determine mount path (same logic as chat-stream.ts)
+            const isProd = process.env.NODE_ENV === 'production';
+            const mountPath = process.env.RAILWAY_VOLUME_MOUNT_PATH || (isProd ? '/app/uploads' : './uploads');
+            const imagesDir = await import('path').then(p => p.join(mountPath, 'images'));
+            const filePath = await import('path').then(p => p.join(imagesDir, filename));
+
+            const fs = await import('fs/promises');
+            const fileBuffer = await fs.readFile(filePath);
+            const base64 = fileBuffer.toString('base64');
+
+            // Reconstruct data URI with mime type (guess from extension)
+            const ext = filename.split('.').pop()?.toLowerCase();
+            let mimeType = 'image/jpeg';
+            if (ext === 'png') mimeType = 'image/png';
+            if (ext === 'webp') mimeType = 'image/webp';
+
+            return `data:${mimeType};base64,${base64}`;
+          }
+        } catch (err) {
+          console.error(`Failed to read local image file for ref ${ref}:`, err);
+          // Fallback to returning the URL (will likely fail in Gemini but better than nothing)
+        }
+      }
+      return data;
+    }
   }
 
   // Priority 2: Fall back to legacy imageContext
