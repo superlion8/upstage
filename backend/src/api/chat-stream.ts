@@ -58,10 +58,9 @@ function sendSSE(reply: FastifyReply, event: string, data: any) {
 }
 
 /**
- * Process image for persistence using Supabase Storage
- * This avoids:
- * 1. Railway's ephemeral filesystem (files lost on deploy)
- * 2. Base64 bloating database and Claude context
+ * Persist image to Railway Volume (mounted at /data or RAILWAY_VOLUME_MOUNT_PATH)
+ * Railway Volumes persist across deploys, solving the ephemeral filesystem issue
+ * Falls back to data URL if volume is not available
  */
 async function persistImage(id: string, base64Data: string, userId: string): Promise<string> {
   if (!base64Data) {
@@ -73,67 +72,48 @@ async function persistImage(id: string, base64Data: string, userId: string): Pro
     return base64Data;
   }
 
-  // Try to upload to Supabase Storage if configured
-  const supabaseUrl = config.database.supabaseUrl;
-  const supabaseKey = config.database.supabaseServiceKey || config.database.supabaseAnonKey;
+  try {
+    // Parse base64 data
+    let buffer: Buffer;
+    let mimeType = 'image/png';
 
-  if (supabaseUrl && supabaseKey) {
-    try {
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(supabaseUrl, supabaseKey);
-
-      // Parse base64 data
-      let buffer: Buffer;
-      let mimeType = 'image/png';
-
-      if (base64Data.startsWith('data:')) {
-        const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-        if (matches && matches.length === 3) {
-          mimeType = matches[1];
-          buffer = Buffer.from(matches[2], 'base64');
-        } else {
-          return base64Data; // Invalid data URL
-        }
+    if (base64Data.startsWith('data:')) {
+      const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        mimeType = matches[1];
+        buffer = Buffer.from(matches[2], 'base64');
       } else {
-        // Raw base64
-        buffer = Buffer.from(base64Data, 'base64');
+        // Invalid data URL, return as-is
+        return base64Data;
       }
-
-      const extension = mimeType.split('/')[1] || 'png';
-      const filename = `${userId}/${id}.${extension}`;
-
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from('generated-images')  // Bucket name
-        .upload(filename, buffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
-
-      if (error) {
-        logger.error('Supabase upload failed', { error: error.message, id });
-        // Fall back to data URL
-        return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
-      }
-
-      // Get public URL
-      const { data: publicUrlData } = supabase.storage
-        .from('generated-images')
-        .getPublicUrl(filename);
-
-      logger.info('Image uploaded to Supabase', { id, url: publicUrlData.publicUrl });
-      return publicUrlData.publicUrl;
-
-    } catch (error: any) {
-      logger.error('Supabase storage error', { error: error.message, id });
-      // Fall back to data URL
-      return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+    } else {
+      // Raw base64
+      buffer = Buffer.from(base64Data, 'base64');
     }
-  }
 
-  // No Supabase configured - fall back to data URL (not ideal for production)
-  logger.warn('Supabase not configured, using data URL (will bloat context)');
-  return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+    const extension = mimeType.split('/')[1] || 'png';
+    const filename = `${id}.${extension}`;
+
+    // Use Railway Volume mount path if available, else use local uploads dir
+    const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(process.cwd(), 'public/uploads');
+    const uploadDir = path.join(volumePath, 'images');
+    const filePath = path.join(uploadDir, filename);
+
+    // Ensure directory exists
+    await fs.mkdir(uploadDir, { recursive: true });
+    await fs.writeFile(filePath, buffer);
+
+    // Return URL that our assets route can serve
+    const publicUrl = `/api/chat/assets/${filename}`;
+
+    logger.info('Image saved to volume', { id, path: filePath, url: publicUrl });
+    return publicUrl;
+
+  } catch (error: any) {
+    logger.error('Failed to persist image to volume', { error: error.message, id });
+    // Fall back to data URL
+    return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+  }
 }
 
 // ============================================
@@ -143,11 +123,13 @@ async function persistImage(id: string, base64Data: string, userId: string): Pro
 export async function chatStreamRoutes(fastify: FastifyInstance) {
 
   /**
-   * Serve generated assets
+   * Serve generated assets from Railway Volume
    */
   fastify.get('/assets/:filename', async (request, reply) => {
     const { filename } = request.params;
-    const filePath = path.join(process.cwd(), 'public/uploads', filename);
+    // Use Railway Volume mount path if available
+    const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(process.cwd(), 'public/uploads');
+    const filePath = path.join(volumePath, 'images', filename);
 
     try {
       const buffer = await fs.readFile(filePath);
