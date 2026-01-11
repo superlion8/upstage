@@ -225,6 +225,7 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
       // Collected data for saving
       const toolCalls: any[] = [];
       let finalText = '';
+      let thinkingContent = '';  // Collect thinking content
       let generatedImages: any[] = [];
       let lastDbUpdateTime = Date.now();
       let hasPendingChanges = false;
@@ -258,6 +259,7 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
           await db.update(messages)
             .set({
               textContent: finalText,
+              thinking: thinkingContent || null,  // Save thinking content
               generatedImageUrls: generatedImages.map(img => img.url),
               toolCalls: toolCalls.map(tc => ({
                 tool: tc.tool,
@@ -310,6 +312,14 @@ export async function chatStreamRoutes(fastify: FastifyInstance) {
             case 'text_delta':
               finalText += event.data.delta;
               hasPendingChanges = true;
+              break;
+
+            case 'thinking':
+              // Accumulate thinking content
+              if (event.data.content) {
+                thinkingContent += event.data.content;
+                hasPendingChanges = true;
+              }
               break;
 
             case 'image':
