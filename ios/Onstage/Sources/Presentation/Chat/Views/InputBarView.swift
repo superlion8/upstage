@@ -173,8 +173,19 @@ struct ChatComposer: View {
     .animation(.spring(response: 0.3), value: mode)
     .animation(.spring(response: 0.3), value: showHUD)
     .onChange(of: isTextFieldFocused) { focused in
-      if !focused && text.isEmpty {
+      if focused {
+        // When focused, always be in typing mode
+        mode = .typing
+      } else if text.isEmpty {
+        // Only go to idle if text is empty
         mode = .idle
+      }
+      // If not focused but text is not empty, stay in .typing mode
+    }
+    .onChange(of: text) { newText in
+      // When text changes (e.g., after voice input), ensure we're in typing mode if there's text
+      if !newText.isEmpty && mode == .idle {
+        mode = .typing
       }
     }
   }

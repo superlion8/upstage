@@ -649,7 +649,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   // 编辑图片
   // ============================================
   edit_image: async (args, context) => {
-    const image = resolveImageRef(args.image_ref, context.imageContext);
+    // Use resolveImage which prioritizes ImageStore (has original base64)
+    const image = resolveImage(args.image_ref, context);
 
     const images = await editImage({
       image,
