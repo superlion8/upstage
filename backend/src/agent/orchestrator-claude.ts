@@ -219,8 +219,12 @@ export async function runClaudeAgent(input: ClaudeAgentInput): Promise<{
 
         try {
             const stream = client.messages.stream({
-                model: 'claude-3-7-sonnet-20250219',
-                max_tokens: 4096,
+                model: config.ai.claude.model,
+                max_tokens: 16000,
+                thinking: {
+                    type: 'enabled',
+                    budget_tokens: 8000,
+                },
                 system: systemPrompt,
                 messages: messages,
                 tools: toolDefinitions,
@@ -391,8 +395,12 @@ export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGener
         const systemPrompt = `${AGENT_SYSTEM_PROMPT}\n\n${imagePrompt}`;
 
         const stream = client.messages.stream({
-            model: 'claude-3-7-sonnet-20250219',
-            max_tokens: 4096,
+            model: config.ai.claude.model,
+            max_tokens: 16000,
+            thinking: {
+                type: 'enabled',
+                budget_tokens: 8000,
+            },
             system: systemPrompt,
             messages: localMessages,
             tools: toolDefinitions,
