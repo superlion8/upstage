@@ -28,6 +28,8 @@ RUN npm ci --only=production
 
 # Copy built files
 COPY --from=builder /app/dist ./dist
+# Copy production drizzle config
+COPY drizzle.config.prod.js ./drizzle.config.js
 
 # Set environment
 ENV NODE_ENV=production
