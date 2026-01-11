@@ -58,42 +58,82 @@ function sendSSE(reply: FastifyReply, event: string, data: any) {
 }
 
 /**
- * Process image for persistence
- * Since Railway filesystem is ephemeral, we keep the data URL directly
- * This ensures images are always accessible without file storage issues
+ * Process image for persistence using Supabase Storage
+ * This avoids:
+ * 1. Railway's ephemeral filesystem (files lost on deploy)
+ * 2. Base64 bloating database and Claude context
  */
 async function persistImage(id: string, base64Data: string, userId: string): Promise<string> {
-  // If it's already a data URL or HTTP URL, return as-is
   if (!base64Data) {
     return base64Data;
   }
 
-  // If it's an HTTP URL (not data URL), return it
+  // If it's already an HTTP URL, return it
   if (base64Data.startsWith('http')) {
     return base64Data;
   }
 
-  // For data URLs, just return them directly - iOS AsyncImage can handle data URLs
-  if (base64Data.startsWith('data:')) {
-    // Track in assets table for history (optional, don't fail if it errors)
-    try {
-      await db.insert(assetsTable).values({
-        userId,
-        type: 'generated',
-        name: `${id}`,
-        url: base64Data.substring(0, 100) + '...', // Don't store full base64 in assets table
-        mimeType: 'image/png',
-        fileSize: base64Data.length,
-      });
-    } catch (dbErr) {
-      // Ignore DB errors - this is optional tracking
-    }
+  // Try to upload to Supabase Storage if configured
+  const supabaseUrl = config.database.supabaseUrl;
+  const supabaseKey = config.database.supabaseServiceKey || config.database.supabaseAnonKey;
 
-    return base64Data;
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      // Parse base64 data
+      let buffer: Buffer;
+      let mimeType = 'image/png';
+
+      if (base64Data.startsWith('data:')) {
+        const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          buffer = Buffer.from(matches[2], 'base64');
+        } else {
+          return base64Data; // Invalid data URL
+        }
+      } else {
+        // Raw base64
+        buffer = Buffer.from(base64Data, 'base64');
+      }
+
+      const extension = mimeType.split('/')[1] || 'png';
+      const filename = `${userId}/${id}.${extension}`;
+
+      // Upload to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('generated-images')  // Bucket name
+        .upload(filename, buffer, {
+          contentType: mimeType,
+          upsert: true,
+        });
+
+      if (error) {
+        logger.error('Supabase upload failed', { error: error.message, id });
+        // Fall back to data URL
+        return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+      }
+
+      // Get public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('generated-images')
+        .getPublicUrl(filename);
+
+      logger.info('Image uploaded to Supabase', { id, url: publicUrlData.publicUrl });
+      return publicUrlData.publicUrl;
+
+    } catch (error: any) {
+      logger.error('Supabase storage error', { error: error.message, id });
+      // Fall back to data URL
+      return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+    }
   }
 
-  // If it's raw base64, wrap it as a data URL
-  return `data:image/png;base64,${base64Data}`;
+  // No Supabase configured - fall back to data URL (not ideal for production)
+  logger.warn('Supabase not configured, using data URL (will bloat context)');
+  return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
 }
 
 // ============================================
