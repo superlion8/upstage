@@ -366,8 +366,18 @@ final class ChatViewModel: ObservableObject {
     currentToolBlockId = nil
 
     // CRITICAL: Force post-tool text to create a NEW message block
-    // Do NOT reuse pre-tool message
-    currentAssistantBlockId = nil
+    // Do NOT reuse pre-tool message... UNLESS it contains generated images (from this tool)
+    // If the tool generated images, we want the subsequent text to accompany those images in the same block.
+    if let id = currentAssistantBlockId,
+      let index = blocks.firstIndex(where: { $0.id == id }),
+      case .assistantMessage(let block) = blocks[index],
+      let images = block.generatedImages,
+      !images.isEmpty
+    {
+      // Keep this block open for text
+    } else {
+      currentAssistantBlockId = nil
+    }
 
     // Auto-collapse after delay
     let blockId = block.id
