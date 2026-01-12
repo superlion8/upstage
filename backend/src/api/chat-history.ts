@@ -22,7 +22,10 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             offset,
         });
 
-        return items;
+        return {
+            success: true,
+            conversations: items,
+        };
     });
 
     // GET /conversations/:id
@@ -106,6 +109,9 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
         // If it's a "load previous" pagination, DESC is better.
         // If it's "load full history", ASC is better.
         // Let's return DESC, UI usually reverses.
-        return msgs.reverse();
+        return {
+            success: true,
+            messages: msgs.reverse(),
+        };
     });
 }
