@@ -74,7 +74,18 @@ class AudioRecorderManager: NSObject, ObservableObject {
       recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
       recognitionRequest?.shouldReportPartialResults = true
 
+      // Cancel previous task if any
+      recognitionTask?.cancel()
+      recognitionTask = nil
+
+      // Ensure engine is stopped and tap is removed before configuring
+      if audioEngine?.isRunning == true {
+        audioEngine?.stop()
+      }
+
       let inputNode = audioEngine!.inputNode
+      inputNode.removeTap(onBus: 0)  // CRITICAL FIX: Remove existing tap
+
       let recordingFormat = inputNode.outputFormat(forBus: 0)
 
       inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) {

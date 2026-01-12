@@ -148,10 +148,23 @@ final class ChatViewModel: ObservableObject {
   }
 
   func startNewConversation() {
+    // Cancel any ongoing stream
+    if isLoading {
+      sseClient.cancel()
+      isLoading = false
+    }
+
     currentConversationId = nil
     blocks = []
     inputText = ""
     selectedImages = []
+
+    // Reset streaming state
+    currentThinkingBlockId = nil
+    currentToolBlockId = nil
+    currentAssistantBlockId = nil
+    thinkingStartTime = nil
+
     if isDemoMode {
       addWelcomeMessage()
     }
