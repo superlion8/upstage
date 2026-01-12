@@ -114,4 +114,43 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             messages: msgs.reverse(),
         };
     });
+
+
+    // GET /messages (for iOS compatibility)
+    fastify.get('/messages', {
+        preHandler: [fastify.authenticate],
+    }, async (request: FastifyRequest<{ Querystring: { conversation_id: string; limit?: number; offset?: number } }>, reply) => {
+        const userId = request.user.id;
+        const conversationId = request.query.conversation_id;
+        const limit = Number(request.query.limit) || 50;
+        const offset = Number(request.query.offset) || 0;
+
+        if (!conversationId) {
+            return reply.status(400).send({ error: 'conversation_id is required' });
+        }
+
+        // Verify ownership
+        const conversation = await db.query.conversations.findFirst({
+            where: and(
+                eq(conversations.id, conversationId),
+                eq(conversations.userId, userId)
+            ),
+        });
+
+        if (!conversation) {
+            return reply.status(404).send({ error: 'Conversation not found' });
+        }
+
+        const msgs = await db.query.messages.findMany({
+            where: eq(messages.conversationId, conversationId),
+            orderBy: [desc(messages.createdAt)],
+            limit,
+            offset,
+        });
+
+        return {
+            success: true,
+            messages: msgs.reverse(),
+        };
+    });
 }
