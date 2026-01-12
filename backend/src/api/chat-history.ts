@@ -98,20 +98,33 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
 
         const msgs = await db.query.messages.findMany({
             where: eq(messages.conversationId, id),
-            orderBy: [desc(messages.createdAt)], // Newest first for pagination usually, or sync with UI expectation
+            orderBy: [desc(messages.createdAt)],
             limit,
             offset,
         });
 
-        // Reverse to chronological order if UI expects it, or keep standard.
-        // Usually APIs return newest first (desc) or oldest first (asc).
-        // Let's stick to desc (database natural) or asc (chat log).
-        // If it's a "load previous" pagination, DESC is better.
-        // If it's "load full history", ASC is better.
-        // Let's return DESC, UI usually reverses.
+        // Map DB fields to iOS DTO expected format
+        const mappedMsgs = msgs.map(msg => ({
+            id: msg.id,
+            role: msg.role,
+            text: msg.textContent,
+            images: msg.imageUrls,
+            generatedImages: msg.generatedImageUrls,
+            thinking: msg.thinking,
+            createdAt: msg.createdAt,
+            agentSteps: msg.toolCalls ? msg.toolCalls.map(tc => ({
+                type: 'tool_use',
+                tool: tc.tool,
+                arguments: tc.args,
+                result: tc.result,
+                status: 'success',
+                timestamp: msg.updatedAt
+            })) : undefined
+        }));
+
         return {
             success: true,
-            messages: msgs.reverse(),
+            messages: mappedMsgs.reverse(),
         };
     });
 
@@ -148,9 +161,28 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             offset,
         });
 
+        // Map DB fields to iOS DTO expected format
+        const mappedMsgs = msgs.map(msg => ({
+            id: msg.id,
+            role: msg.role,
+            text: msg.textContent,
+            images: msg.imageUrls,
+            generatedImages: msg.generatedImageUrls,
+            thinking: msg.thinking,
+            createdAt: msg.createdAt,
+            agentSteps: msg.toolCalls ? msg.toolCalls.map(tc => ({
+                type: 'tool_use',
+                tool: tc.tool,
+                arguments: tc.args,
+                result: tc.result,
+                status: 'success',
+                timestamp: msg.updatedAt
+            })) : undefined
+        }));
+
         return {
             success: true,
-            messages: msgs.reverse(),
+            messages: mappedMsgs.reverse(),
         };
     });
 }
