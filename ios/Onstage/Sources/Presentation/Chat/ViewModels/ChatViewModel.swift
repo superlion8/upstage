@@ -52,7 +52,7 @@ final class ChatViewModel: ObservableObject {
   private let chatRepository = ChatRepository.shared
   private let sseClient = SSEClient()
   let audioRecorder = AudioRecorderManager()  // Public for View access
-  private var useStreaming = true  // Use streaming by default
+
   private var backgroundObserver: NSObjectProtocol?
   private var foregroundObserver: NSObjectProtocol?
   private var currentStreamingMessageId: UUID?
@@ -229,14 +229,9 @@ final class ChatViewModel: ObservableObject {
       return
     }
 
-    // Use streaming or regular API
-    if useStreaming {
-      await sendMessageStream(
-        text: text.isEmpty ? nil : text, images: images.isEmpty ? nil : images)
-    } else {
-      await sendMessageRegular(
-        text: text.isEmpty ? nil : text, images: images.isEmpty ? nil : images)
-    }
+    // Use streaming (Default)
+    await sendMessageStream(
+      text: text.isEmpty ? nil : text, images: images.isEmpty ? nil : images)
   }
 
   // MARK: - Streaming Send
@@ -530,53 +525,6 @@ final class ChatViewModel: ObservableObject {
   }
 
   // MARK: - Regular Send (non-streaming fallback)
-
-  private func sendMessageRegular(text: String?, images: [MessageImage]?) async {
-    // Add loading block
-    var loadingBlock = AssistantMessageBlock(text: "思考中...", status: .running)
-    blocks.append(.assistantMessage(loadingBlock))
-    let loadingBlockId = loadingBlock.id
-
-    isLoading = true
-
-    do {
-      let response = try await chatRepository.sendMessage(
-        conversationId: currentConversationId,
-        text: text,
-        images: images
-      )
-
-      // Update conversation ID if new
-      if currentConversationId == nil {
-        currentConversationId = response.conversationId
-        await loadConversations()
-      }
-
-      // Replace loading block with actual response
-      if let index = blocks.firstIndex(where: { $0.id == loadingBlockId }) {
-        let responseBlock = AssistantMessageBlock(
-          id: response.message.id,
-          text: response.message.content.text ?? "",
-          status: .done,
-          generatedImages: response.message.content.generatedImages
-        )
-        blocks[index] = .assistantMessage(responseBlock)
-      }
-
-    } catch {
-      // Update loading block to error
-      if let index = blocks.firstIndex(where: { $0.id == loadingBlockId }),
-        case .assistantMessage(var block) = blocks[index]
-      {
-        block.text = "发送失败: \(error.localizedDescription)"
-        block.status = .failed
-        blocks[index] = .assistantMessage(block)
-      }
-      self.error = error.localizedDescription
-    }
-
-    isLoading = false
-  }
 
   // MARK: - Demo Mode AI Response
 
