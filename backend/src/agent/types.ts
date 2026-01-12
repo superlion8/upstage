@@ -25,3 +25,10 @@ export interface StreamEvent {
     type: 'thinking' | 'tool_start' | 'tool_result' | 'text_delta' | 'image' | 'done' | 'error';
     data: any;
 }
+
+export interface GeneratedImage {
+    id: string;
+    url: string;
+    data?: string; // Base64
+    thumbnailUrl?: string;
+}
