@@ -69,6 +69,7 @@ final class ChatRepository {
       let success: Bool?
       let message: String?
       let hasImages: Bool?
+      let images: [String]?  // Added
     }
 
     let response = try await apiClient.request(
@@ -94,7 +95,14 @@ final class ChatRepository {
           tool: stepDTO.tool,
           arguments: stepDTO.arguments,
           result: stepDTO.result.map {
-            StepResult(success: $0.success ?? true, message: $0.message, hasImages: $0.hasImages)
+            StepResult(
+              success: $0.success ?? true,
+              message: $0.message,
+              hasImages: $0.hasImages,
+              images: $0.images?.enumerated().map { i, url in
+                GeneratedImage(id: "tool_gen_\(i)", url: url)
+              }
+            )
           },
           timestamp: stepDTO.timestamp ?? Date(),
           status: stepStatus
@@ -106,7 +114,15 @@ final class ChatRepository {
         role: dto.role,
         content: MessageContent(
           text: dto.text,
-          images: nil,  // Images are stored as URLs, not data
+          images: dto.images?.map { url in
+            MessageImage(
+              id: UUID(),
+              data: Data(),
+              mimeType: "image/jpeg",
+              label: "Image",
+              url: url
+            )
+          },
           generatedImages: dto.generatedImages?.enumerated().map { i, url in
             GeneratedImage(id: "gen_\(i)", url: url)
           },
@@ -167,6 +183,7 @@ final class ChatRepository {
       let success: Bool?
       let message: String?
       let hasImages: Bool?
+      let images: [String]?  // Added
     }
 
     let response = try await apiClient.request(
@@ -183,7 +200,14 @@ final class ChatRepository {
         tool: dto.tool,
         arguments: dto.arguments,
         result: dto.result.map {
-          StepResult(success: $0.success ?? true, message: $0.message, hasImages: $0.hasImages)
+          StepResult(
+            success: $0.success ?? true,
+            message: $0.message,
+            hasImages: $0.hasImages,
+            images: $0.images?.enumerated().map { i, url in
+              GeneratedImage(id: "tool_gen_resp_\(i)", url: url)
+            }
+          )
         },
         timestamp: dto.timestamp
       )

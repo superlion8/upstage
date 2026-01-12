@@ -335,6 +335,21 @@ struct UserMessageBubble: View {
                   .aspectRatio(contentMode: .fill)
                   .frame(width: 80, height: 80)
                   .clipShape(RoundedRectangle(cornerRadius: 12))
+              } else if let urlStr = image.url, let url = URL(string: urlStr) {
+                AsyncImage(url: url) { phase in
+                  switch phase {
+                  case .success(let img):
+                    img
+                      .resizable()
+                      .aspectRatio(contentMode: .fill)
+                      .frame(width: 80, height: 80)
+                      .clipShape(RoundedRectangle(cornerRadius: 12))
+                  default:
+                    Color.gray.opacity(0.2)
+                      .frame(width: 80, height: 80)
+                      .clipShape(RoundedRectangle(cornerRadius: 12))
+                  }
+                }
               }
             }
           }

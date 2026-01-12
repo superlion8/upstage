@@ -724,7 +724,7 @@ struct MessageBlockFactory {
             status: step.status == .failed ? .failed : .done,
             inputs: formatArguments(step.arguments),
             logs: step.output != nil ? [step.output!] : [],
-            outputs: [],
+            outputs: step.result?.images ?? [],
             summary: step.description ?? step.result?.message ?? "Completed",
             createdAt: step.timestamp
           )

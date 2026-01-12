@@ -86,6 +86,7 @@ struct StepResult: Codable, Equatable {
   let success: Bool
   let message: String?
   let hasImages: Bool?
+  var images: [GeneratedImage]?  // Added to support tool images
 }
 
 /// User uploaded image
@@ -94,6 +95,7 @@ struct MessageImage: Identifiable, Codable, Equatable {
   let data: Data
   let mimeType: String
   var label: String  // "图1", "图2"
+  var url: String? = nil  // Added for history loading
 
   var base64String: String {
     data.base64EncodedString()
@@ -101,6 +103,14 @@ struct MessageImage: Identifiable, Codable, Equatable {
 
   var dataUrl: String {
     "data:\(mimeType);base64,\(base64String)"
+  }
+
+  init(id: UUID = UUID(), data: Data, mimeType: String, label: String, url: String? = nil) {
+    self.id = id
+    self.data = data
+    self.mimeType = mimeType
+    self.label = label
+    self.url = url
   }
 }
 
