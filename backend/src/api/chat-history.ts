@@ -96,6 +96,16 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             return reply.status(404).send({ error: 'Conversation not found' });
         }
 
+        const protocol = process.env.NODE_ENV === 'production' ? 'https' : request.protocol;
+        const host = request.hostname;
+        const baseUrl = `${protocol}://${host}`;
+
+        const toFullUrl = (url: string) => {
+            if (!url) return url;
+            if (url.startsWith('http')) return url;
+            return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+        };
+
         const msgs = await db.query.messages.findMany({
             where: eq(messages.conversationId, id),
             orderBy: [desc(messages.createdAt)],
@@ -108,12 +118,12 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             id: msg.id,
             role: msg.role,
             text: msg.textContent,
-            images: msg.imageUrls,
-            generatedImages: msg.generatedImageUrls,
+            images: msg.imageUrls?.map(toFullUrl),
+            generatedImages: msg.generatedImageUrls?.map(toFullUrl),
             thinking: msg.thinking,
             createdAt: msg.createdAt,
             agentSteps: msg.toolCalls ? msg.toolCalls.map(tc => ({
-                type: 'tool_use',
+                type: 'tool_call', // FIXED: iOS expects 'tool_call'
                 tool: tc.tool,
                 arguments: tc.args,
                 result: tc.result,
@@ -154,6 +164,16 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             return reply.status(404).send({ error: 'Conversation not found' });
         }
 
+        const protocol = process.env.NODE_ENV === 'production' ? 'https' : request.protocol;
+        const host = request.hostname;
+        const baseUrl = `${protocol}://${host}`;
+
+        const toFullUrl = (url: string) => {
+            if (!url) return url;
+            if (url.startsWith('http')) return url;
+            return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+        };
+
         const msgs = await db.query.messages.findMany({
             where: eq(messages.conversationId, conversationId),
             orderBy: [desc(messages.createdAt)],
@@ -166,12 +186,12 @@ export async function chatHistoryRoutes(fastify: FastifyInstance) {
             id: msg.id,
             role: msg.role,
             text: msg.textContent,
-            images: msg.imageUrls,
-            generatedImages: msg.generatedImageUrls,
+            images: msg.imageUrls?.map(toFullUrl),
+            generatedImages: msg.generatedImageUrls?.map(toFullUrl),
             thinking: msg.thinking,
             createdAt: msg.createdAt,
             agentSteps: msg.toolCalls ? msg.toolCalls.map(tc => ({
-                type: 'tool_use',
+                type: 'tool_call', // FIXED: iOS expects 'tool_call'
                 tool: tc.tool,
                 arguments: tc.args,
                 result: tc.result,
