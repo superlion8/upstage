@@ -248,3 +248,14 @@ export async function resolveImage(ref: string, context: ToolContext): Promise<s
   // Priority 2: Fall back to legacy imageContext
   return context.imageContext?.[ref] || ref;
 }
+
+/**
+ * Execute a tool by name
+ */
+export async function executeTool(name: string, args: any, context: ToolContext) {
+  const executor = TOOL_EXECUTORS[name];
+  if (!executor) {
+    throw new Error(`Tool ${name} not found`);
+  }
+  return executor(args, context);
+}
