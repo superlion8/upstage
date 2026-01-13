@@ -92,7 +92,7 @@ function getLeanResult(result: any): any {
 // Build Messages
 // ============================================
 
-function buildClaudeMessages(input: ClaudeAgentInput, imageStore: ImageStore): Anthropic.MessageParam[] {
+async function buildClaudeMessages(input: ClaudeAgentInput, imageStore: ImageStore): Promise<Anthropic.MessageParam[]> {
     const messages: Anthropic.MessageParam[] = [];
 
     // 1. History
@@ -229,7 +229,7 @@ export async function runClaudeAgent(input: ClaudeAgentInput): Promise<{
 }> {
     const client = getAnthropicClient();
     const imageStore = createImageStore();
-    const messages = buildClaudeMessages(input, imageStore);
+    const messages = await buildClaudeMessages(input, imageStore);
     const toolDefinitions = getClaudeToolDefinitions();
 
     const toolCalls: any[] = [];
@@ -408,7 +408,7 @@ export type ClaudeStreamEvent =
 export async function* runClaudeAgentStream(input: ClaudeAgentInput): AsyncGenerator<ClaudeStreamEvent> {
     const client = getAnthropicClient();
     const imageStore = createImageStore();
-    const messages = buildClaudeMessages(input, imageStore);
+    const messages = await buildClaudeMessages(input, imageStore);
     const toolDefinitions = getClaudeToolDefinitions();
 
     let iteration = 0;
