@@ -370,6 +370,13 @@ final class ChatViewModel: ObservableObject {
     block.summary = message ?? (success ? "Completed" : "Failed")
     block.duration = Date().timeIntervalSince(block.createdAt)
 
+    // Add output to logs for expanded view
+    if let output = result?["output"] as? String, !output.isEmpty {
+      block.logs.append("Output: \(output)")
+    } else if let message = message, !message.isEmpty {
+      block.logs.append("Result: \(message)")
+    }
+
     blocks[index] = .tool(block)
     currentToolBlockId = nil
 
