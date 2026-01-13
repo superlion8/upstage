@@ -37,6 +37,7 @@ async function buildServer() {
     requestTimeout: 600000, // 10 minutes for long image gen
     connectionTimeout: 600000,
     keepAliveTimeout: 610000,
+    bodyLimit: 52428800, // 50MB for large base64 image payloads
   });
 
   // ============================================
