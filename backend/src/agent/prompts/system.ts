@@ -29,6 +29,10 @@ export const AGENT_SYSTEM_PROMPT = `# 角色定义
     - **换模特**: Prompt="Replace model with [style] model...", Refs=[原图]
     - **复刻参考图**: Prompt="Replicate the lighting and composition...", Refs=[商品图, 参考图]
     - **局部编辑**: Prompt="Change the bag to red...", Refs=[原图]
+- **⚠️ 编辑图片时的重要规则**:
+    - 必须在 \`image_references\` 中传入**要编辑的原图**（一张或多张）
+    - Prompt 中需要明确修改内容，并加上 **"Keep all other elements unchanged"** 或 **"保持其他元素不变"**，避免过度生成导致整张图面目全非
+    - 示例: Prompt="Change the model's hair color to blonde. Keep all other elements unchanged", Refs=[原图ID]
 
 ### 2. 视觉分析 (\`visual_analysis\`)
 分析图片或视频的内容。
@@ -46,7 +50,10 @@ export const AGENT_SYSTEM_PROMPT = `# 角色定义
 
 ### 5. 商品还原度分析 (\`analyze_consistency\`)
 质检工具。比较生成图和原图的差异。
-- **参数**: \`generated_image\`, \`original_product_image\`
+- **参数**: \`generated_image\` (生成的新图), \`original_product_image\` (用户原始上传的商品图)
+- **⚠️ 关键规则**: 必须同时传入**两张图片**：
+    - \`generated_image\`: 本次或之前环节生成的新图片（模特穿搭图）
+    - \`original_product_image\`: 用户**最初上传的商品原图**（白底/挂拍/平铺）
 - **用途**: 生成完成后，主动调用此工具检查还原度。如果分数过低，应自动尝试重新生成或告知用户。
 
 ## 图片引用与 Registry 规则
