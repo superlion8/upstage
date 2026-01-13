@@ -10,6 +10,8 @@ import { createLogger } from '../lib/logger.js';
 import { AGENT_SYSTEM_PROMPT } from './prompts/system.js';
 import { TOOL_EXECUTORS, AGENT_TOOLS } from './tools/index.js';
 import { createImageStore, ImageStore } from './image-store.js';
+import fs from 'fs/promises';
+import path from 'path';
 
 const logger = createLogger('claude-orchestrator');
 
@@ -144,6 +146,36 @@ function buildClaudeMessages(input: ClaudeAgentInput, imageStore: ImageStore): A
             const img = input.message.images[i];
             const mimeType = img.mimeType || 'image/jpeg';
 
+            // Handle URL-based images (from multipart upload)
+            let base64Data: string;
+            if (img.data.startsWith('/api/chat/assets/')) {
+                // Read file from disk
+                const filename = img.data.replace('/api/chat/assets/', '');
+                const uploadsDir = process.env.NODE_ENV === 'production' ? '/app/uploads' : path.join(process.cwd(), 'public/uploads');
+                const filePath = path.join(uploadsDir, 'images', filename);
+                try {
+                    const buffer = await fs.readFile(filePath);
+                    base64Data = buffer.toString('base64');
+                    logger.info('Loaded image from disk for Claude', { filename, size: buffer.length });
+                } catch (err: any) {
+                    logger.error('Failed to read image file', { filePath, error: err.message });
+                    continue; // Skip this image
+                }
+            } else if (img.data.startsWith('http')) {
+                // HTTP URL - fetch and convert (for external URLs)
+                try {
+                    const response = await fetch(img.data);
+                    const buffer = Buffer.from(await response.arrayBuffer());
+                    base64Data = buffer.toString('base64');
+                } catch (err: any) {
+                    logger.error('Failed to fetch image URL', { url: img.data, error: err.message });
+                    continue;
+                }
+            } else {
+                // Already base64 (legacy path)
+                base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
+            }
+
             const id = imageStore.register({
                 id: img.id,
                 data: img.data,
@@ -151,8 +183,6 @@ function buildClaudeMessages(input: ClaudeAgentInput, imageStore: ImageStore): A
                 description: 'User uploaded image in current turn',
                 aliases: [`image_${i + 1}`]
             });
-
-            const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
 
             currentContent.push({
                 type: 'image',
