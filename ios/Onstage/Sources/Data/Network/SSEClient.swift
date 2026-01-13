@@ -104,41 +104,48 @@ class SSEClient: NSObject, URLSessionDataDelegate {
       return
     }
 
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    // Upload images first if needed, then start SSE stream
+    Task {
+      do {
+        var imageUrls: [String]? = nil
 
-    // Build body
-    var body: [String: Any] = [:]
-    if let conversationId = conversationId {
-      body["conversation_id"] = conversationId.uuidString
-    }
-    if let text = text {
-      body["text"] = text
-    }
-    if let images = images {
-      body["images"] = images.map { img in
-        [
-          "id": img.id.uuidString,
-          "data": img.base64String,
-          "mime_type": img.mimeType,
-        ]
+        // Step 1: Upload images if present
+        if let images = images, !images.isEmpty {
+          print("📡 SSE: Uploading \(images.count) images first...")
+          imageUrls = try await APIClient.shared.uploadImages(images)
+          print("📡 SSE: Images uploaded, got \(imageUrls?.count ?? 0) URLs")
+        }
+
+        // Step 2: Build and send SSE request with URLs instead of base64
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        // Build body with URLs (not base64)
+        var body: [String: Any] = [:]
+        if let conversationId = conversationId {
+          body["conversation_id"] = conversationId.uuidString
+        }
+        if let text = text {
+          body["text"] = text
+        }
+        if let urls = imageUrls {
+          body["image_urls"] = urls  // New: send URLs, not base64
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        self.task = self.session.dataTask(with: request)
+        self.task?.resume()
+
+        print("📡 SSE: Started streaming...")
+
+      } catch {
+        onError(error)
       }
     }
-
-    do {
-      request.httpBody = try JSONSerialization.data(withJSONObject: body)
-    } catch {
-      onError(error)
-      return
-    }
-
-    task = session.dataTask(with: request)
-    task?.resume()
-
-    print("📡 SSE: Started streaming...")
   }
 
   /// Cancel the stream

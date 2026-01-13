@@ -32,20 +32,36 @@ const streamMessageSchema = z.object({
   conversationId: z.string().uuid().optional(),
   conversation_id: z.string().uuid().optional(),
   text: z.string().optional(),
+  // Legacy: base64 images embedded in request
   images: z.array(z.object({
     id: z.string().optional(),
     data: z.string(),
     mimeType: z.string().optional(),
     mime_type: z.string().optional(),
   })).optional(),
+  // New: image URLs from multipart upload
+  imageUrls: z.array(z.string()).optional(),
+  image_urls: z.array(z.string()).optional(),
 }).transform(data => ({
   conversationId: data.conversationId || data.conversation_id,
   text: data.text,
-  images: data.images?.map((img, i) => ({
-    id: img.id || `img_${Date.now()}_${i}`,
-    data: img.data,
-    mimeType: img.mimeType || img.mime_type || 'image/jpeg',
-  })),
+  // Combine both sources: URL-based and base64-based
+  images: [
+    // URL-based images (new preferred method)
+    ...(data.imageUrls || data.image_urls || []).map((url, i) => ({
+      id: `url_${Date.now()}_${i}`,
+      data: url, // Store URL as "data" for downstream processing
+      mimeType: 'image/jpeg',
+      isUrl: true,
+    })),
+    // Base64-based images (legacy fallback)
+    ...(data.images || []).map((img, i) => ({
+      id: img.id || `img_${Date.now()}_${i}`,
+      data: img.data,
+      mimeType: img.mimeType || img.mime_type || 'image/jpeg',
+      isUrl: false,
+    })),
+  ],
 }));
 
 // ============================================
@@ -67,8 +83,8 @@ async function persistImage(id: string, base64Data: string, userId: string): Pro
     return base64Data;
   }
 
-  // If it's already an HTTP URL, return it
-  if (base64Data.startsWith('http')) {
+  // If it's already a URL (http or relative path from multipart upload), return it
+  if (base64Data.startsWith('http') || base64Data.startsWith('/api/')) {
     return base64Data;
   }
 

@@ -137,6 +137,29 @@ final class APIClient {
 
     return try JSONDecoder.api.decode(T.self, from: data)
   }
+
+  // MARK: - Upload Images
+
+  /// Upload images and get their URLs
+  /// Call this before sending chat messages to avoid base64-in-JSON issues
+  func uploadImages(_ images: [MessageImage]) async throws -> [String] {
+    struct UploadResponse: Decodable {
+      let success: Bool
+      let urls: [String]
+    }
+
+    let files = images.enumerated().map { i, img in
+      (data: img.data, name: "files", fileName: "image_\(i).jpg", mimeType: img.mimeType)
+    }
+
+    let response = try await upload(
+      .uploadImages(images: images),
+      files: files,
+      responseType: UploadResponse.self
+    )
+
+    return response.urls
+  }
 }
 
 // MARK: - JSON Decoder Extension

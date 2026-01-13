@@ -15,6 +15,7 @@ enum APIEndpoint {
 
   // Chat
   case sendMessage(conversationId: UUID?, text: String?, images: [MessageImage]?)
+  case uploadImages(images: [MessageImage])
   case getConversations(limit: Int, offset: Int)
   case getMessages(conversationId: UUID, limit: Int, offset: Int)
   case deleteConversation(id: UUID)
@@ -53,6 +54,7 @@ enum APIEndpoint {
 
     // Chat
     case .sendMessage: return "/chat/send"
+    case .uploadImages: return "/images/upload"
     case .getConversations: return "/chat/conversations"
     case .getMessages: return "/chat/messages"
     case .deleteConversation(let id): return "/chat/conversations/\(id)"
@@ -80,7 +82,8 @@ enum APIEndpoint {
 
   var method: String {
     switch self {
-    case .register, .login, .guestLogin, .refreshToken, .sendMessage, .createAsset, .createSession,
+    case .register, .login, .guestLogin, .refreshToken, .sendMessage, .uploadImages, .createAsset,
+      .createSession,
       .generateFromShootRoom, .onboardBrand:
       return "POST"
     case .getMe, .getConversations, .getMessages, .listAssets, .getAsset, .listPresets,

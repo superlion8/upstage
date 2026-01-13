@@ -21,6 +21,7 @@ import { authRoutes } from './api/auth.js';
 
 import { chatStreamRoutes } from './api/chat-stream.js';
 import { chatHistoryRoutes } from './api/chat-history.js';
+import { imageUploadRoutes } from './api/images.js';
 import { assetsRoutes } from './api/assets.js';
 import { shootRoomRoutes } from './api/shoot-room.js';
 import onboardingRoutes from './api/onboarding.js';
@@ -125,6 +126,7 @@ async function buildServer() {
 
   await fastify.register(chatStreamRoutes, { prefix: '/api/chat' }); // Streaming endpoint
   await fastify.register(chatHistoryRoutes, { prefix: '/api/chat' }); // History endpoints
+  await fastify.register(imageUploadRoutes, { prefix: '/api/images' }); // Image upload
   await fastify.register(assetsRoutes, { prefix: '/api/assets' });
   await fastify.register(shootRoomRoutes, { prefix: '/api/shoot-room' });
   await fastify.register(onboardingRoutes, { prefix: '/api' });
